@@ -15,7 +15,6 @@ const apiVersion = "2024-11-30";
 // Monday.com 設定
 const MONDAY_API_TOKEN = process.env.MONDAY_API_KEY;
 const BOARD_ID = 9857035666;
-const MONDAY_API_VERSION = "2023-10";
 
 // simple in-memory gate across invocations within this process
 let lastMutationAt = 0;
