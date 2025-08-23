@@ -1,9 +1,101 @@
+
+// ローカル開発環境用（Azure Functionsでは不要）
+if (!process.env.WEBSITE_SITE_NAME) {
+  require('dotenv').config();
+}
+
 const axios = require('axios');
 const FormData = require('form-data');
-const { stripUndefined, formatDate, throttleMutation, gqlRequest } = require('../utils');
 
 const MONDAY_API_TOKEN = process.env.MONDAY_API_KEY;
 const BOARD_ID = 9857035666;
+
+async function gqlRequest(query, variables, context, opts = {}) {
+  const {
+    maxRetries = 5,
+    baseDelayMs = 500,  // used when retry_in_seconds is missing
+    apiVersion = '2023-10',
+  } = opts;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await axios.post(
+        'https://api.monday.com/v2',
+        { query, variables },
+        {
+          headers: {
+            Authorization: `Bearer ${MONDAY_API_TOKEN}`,
+            'Content-Type': 'application/json',
+            'API-Version': apiVersion,
+          },
+          timeout: 20000,
+          validateStatus: () => true, // handle 429 here
+        }
+      );
+
+      // Handle HTTP 429 or a body that signals ComplexityException
+      const status = res.status;
+      const body = res.data;
+
+      // Helper to sleep
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      const isComplexity429 =
+        status === 429 ||
+        body?.error_code === 'ComplexityException' ||
+        (Array.isArray(body?.errors) &&
+         body.errors.some((m) => typeof m === 'string' && m.includes('Complexity budget exhausted')));
+
+      if (isComplexity429) {
+        // Respect retry hint if present
+        let waitSec =
+          body?.error_data?.retry_in_seconds ??
+          // fallback: parse "... reset in 31 seconds"
+          (() => {
+            const m = (JSON.stringify(body) || '').match(/reset in (\d+) seconds/i);
+            return m ? parseInt(m[1], 10) : null;
+          })();
+
+        if (waitSec == null) {
+          // exponential backoff + jitter
+          waitSec = Math.min(60, Math.pow(2, attempt)) + Math.random();
+        }
+
+        context.log(
+          `⏳ 429/Complexity throttled. Waiting ${waitSec}s before retry (attempt ${attempt + 1}/${maxRetries}).`
+        );
+        await sleep(waitSec * 1000);
+        continue; // retry
+      }
+
+      // Handle GraphQL errors (200 with errors array)
+      if (body?.errors?.length) {
+        context.log.error('🧩 GraphQL errors:', JSON.stringify(body.errors, null, 2));
+        throw new Error(body.errors.map((e) => e.message || e).join('; '));
+      }
+
+      if (!body || !body.data) {
+        context.log.error('❗Unexpected GraphQL response:', JSON.stringify(body, null, 2));
+        throw new Error('Unexpected GraphQL response (no data).');
+      }
+
+      return body.data; // success
+    } catch (err) {
+      if (attempt === maxRetries) {
+        throw err;
+      }
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 200);
+      context.log(`♻️ Transient error. Backing off ${delay}ms. Attempt ${attempt + 1}/${maxRetries}`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error('gqlRequest: exhausted retries.');
+}
+
+// Helper: remove only undefined (keep null/"" if you really want to blank a field)
+function stripUndefined(obj) {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
 
 async function uploadToMonday(rowData, context, base64BinFile, originalFileName) {
   context.log("🚀 uploadToMonday() called");
@@ -151,6 +243,17 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
   context.log(JSON.stringify(fileUploadResponse.data, null, 2));
 }
 
+function formatDate(dateStr) {
+    const [year, month, day] = dateStr.split('-');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+async function throttleMutation() {
+  const now = Date.now();
+  const wait = Math.max(0, lastMutationAt + MUTATION_SPACING_MS - now);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastMutationAt = Date.now();
+}
 module.exports = {
   uploadToMonday
 };
