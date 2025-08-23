@@ -18,7 +18,7 @@ const BOARD_ID = 9857035666;
 
 // simple in-memory gate across invocations within this process
 let lastMutationAt = 0;
-const MUTATION_SPACING_MS = "2000";
+const MUTATION_SPACING_MS = 2000;
 
 function logMessage(message, context) {
     if (context && context.log) {
