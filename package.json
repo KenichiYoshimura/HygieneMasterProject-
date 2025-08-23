@@ -1,0 +1,12 @@
+{
+  "name": "hygienmaster",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.4.0"
+  }
+}
