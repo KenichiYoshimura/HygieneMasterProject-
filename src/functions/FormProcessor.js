@@ -1,12 +1,18 @@
+// ローカル開発環境用（Azure Functionsでは不要）
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 const { app } = require('@azure/functions');
 const mime = require('mime-types');
 const { extractImportantManagementData } = require('./extractors');
 const axios = require('axios');
 
-const endpoint = "https://hygienemasterclassifer.cognitiveservices.azure.com/";
-const apiKey = "acc8253debe248bbb8dde348656c48bd";
-const classifierId = "hygiene-master-form-classifier";
-const apiVersion = "2024-11-30";
+// 環境変数から設定を取得
+const endpoint = process.env.CLASSIFIER_ENDPOINT;
+const apiKey = process.env.AZURE_API_KEY;
+const classifierId = process.env.CLASSIFIER_ID;
+const apiVersion = process.env.CLASSIFIER_API_VERSION || "2024-11-30"; // 必要なら .env に追加可能
 
 app.storageBlob('FormProcessor', {
   path: 'incoming-emails/{name}',

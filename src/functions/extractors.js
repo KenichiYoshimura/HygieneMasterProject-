@@ -1,19 +1,25 @@
+// ローカル開発環境用（Azure Functionsでは不要）
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
+
 const axios = require('axios');
 const FormData = require('form-data');
 
 // Azure Document Intelligence 設定
-const endpoint = "https://hygienemasterclassifergeneralextraction.cognitiveservices.azure.com/";
-const apiKey = "c913acdc5f6e4434a36d84cdaa874a71"; 
-const modelId = "important-management-sheet-extraction2";
+const endpoint = process.env.EXTRACTOR_ENDPOINT;
+const apiKey = process.env.AZURE_API_KEY;
+const modelId = process.env.EXTRACTOR_MODEL_ID;
 const apiVersion = "2024-11-30";
 
 // Monday.com 設定
-const MONDAY_API_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjUwOTM4NTY1NiwiYWFpIjoxMSwidWlkIjo3NDgxMDQ2NSwiaWFkIjoiMjAyNS0wNS0wN1QwNjo1MTozOC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjkwNDI1NTEsInJnbiI6InVzZTEifQ.iKxJ4kR_VOYFOL-Ik-_JoqpmTdTwcHIR-37enEqSvmw";
+const MONDAY_API_TOKEN = process.env.MONDAY_API_KEY;
 const BOARD_ID = 9857035666;
+const MONDAY_API_VERSION = "2023-10";
 
 // simple in-memory gate across invocations within this process
 let lastMutationAt = 0;
-const MUTATION_SPACING_MS = 2000; // ~2s spacing ~ 30k*33/min for 1M/min budget
+const MUTATION_SPACING_MS = "2000";
 
 function logMessage(message, context) {
     if (context && context.log) {
