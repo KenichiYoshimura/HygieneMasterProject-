@@ -1,7 +1,7 @@
 // ローカル開発環境用（Azure Functionsでは不要）
-//if (process.env.NODE_ENV !== 'production') {
+if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
-//}
+}
 
 const axios = require('axios');
 const FormData = require('form-data');
