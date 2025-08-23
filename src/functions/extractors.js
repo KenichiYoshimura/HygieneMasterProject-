@@ -8,7 +8,7 @@ const FormData = require('form-data');
 
 // Azure Document Intelligence 設定
 const endpoint = process.env.EXTRACTOR_ENDPOINT;
-const apiKey = process.env.AZURE_API_KEY;
+const apiKey = process.env.EXTRACTOR_ENDPOINT_AZURE_API_KEY;
 const modelId = process.env.EXTRACTOR_MODEL_ID;
 const apiVersion = "2024-11-30";
 
