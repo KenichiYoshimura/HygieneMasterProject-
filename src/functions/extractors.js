@@ -5,6 +5,7 @@ if (!process.env.WEBSITE_SITE_NAME) {
 
 const axios = require('axios');
 const FormData = require('form-data');
+const { logMessage, handleError } = require('./utils');
 
 // Azure Document Intelligence 設定
 const endpoint = process.env.EXTRACTOR_ENDPOINT;
@@ -19,30 +20,6 @@ const BOARD_ID = 9857035666;
 // simple in-memory gate across invocations within this process
 let lastMutationAt = 0;
 const MUTATION_SPACING_MS = 2000;
-
-function logMessage(message, context) {
-    if (context && context.log) {
-        context.log(message);
-    } else {
-        console.log(message);
-    }
-}
-
-function handleError(error, phase, context) {
-    if (context && context.log) {
-        context.log.error(`[ERROR - ${phase}] ${error.message}`);
-        if (error.response) {
-            context.log.error(`[RESPONSE] ${JSON.stringify(error.response.data, null, 2)}`);
-        }
-        context.log.error(`[STACK] ${error.stack}`);
-    } else {
-        console.error(`[ERROR - ${phase}] ${error.message}`);
-        if (error.response) {
-            console.error(`[RESPONSE] ${JSON.stringify(error.response.data, null, 2)}`);
-        }
-        console.error(`[STACK] ${error.stack}`);
-    }
-}
 
 async function extractImportantManagementData(context, base64BinFile, fileExtension) {
     try {
