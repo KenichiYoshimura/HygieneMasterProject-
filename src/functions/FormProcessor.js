@@ -12,7 +12,7 @@ const axios = require('axios');
 const endpoint = process.env.CLASSIFIER_ENDPOINT;
 const apiKey = process.env.AZURE_API_KEY;
 const classifierId = process.env.CLASSIFIER_ID;
-const apiVersion = "2024-11-30"; 
+const apiVersion = "2024-11-30";
 
 app.storageBlob('FormProcessor', {
   path: 'incoming-emails/{name}',
