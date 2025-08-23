@@ -49,8 +49,10 @@ async function extractImportantManagementData(context, base64BinFile, fileExtens
             attempts++;
         }
 
+        logMessage("Checking the extracted data next");
         const fields = result?.analyzeResult?.documents?.[0]?.fields;
-
+        logMessage("Got fields");
+        
         if (fields) {
             logMessage("🧾 Extracted fields:", context);
             console.log("📦 Extracted field keys:", Object.keys(fields));
