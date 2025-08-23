@@ -6,6 +6,6 @@ app.storageBlob('FormProcessor', {
   connection: 'hygienemasterstorage_STORAGE',  // app setting name (see below)
   handler: async (blob, context) => {
     const name = context.triggerMetadata.name;
-    context.log(`✅ Processed blob "${name}" (${blob.length} bytes)`);
+    context.log(`✅ Processed blob "${name}" (${blob.length} bytes)!!!!!`);
   }
 });
