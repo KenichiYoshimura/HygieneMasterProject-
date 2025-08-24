@@ -1,4 +1,3 @@
-
 // ローカル開発環境用（Azure Functionsでは不要）
 if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
@@ -6,6 +5,7 @@ if (!process.env.WEBSITE_SITE_NAME) {
 
 const { app } = require('@azure/functions');
 const { extractImportantManagementData } = require('./extractors');
+const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./documentClassifier');
 
 app.storageBlob('FormProcessor', {
@@ -23,7 +23,11 @@ app.storageBlob('FormProcessor', {
     if (result?.analyzeResult?.documents?.length > 0) {
       const doc = result.analyzeResult.documents[0];
       context.log(`📄 Got the document Type: ${doc.docType}`);
-      await extractImportantManagementData(context, base64Raw, fileExtension);
+
+      const extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
+      for (const { row, fileName } of extractedRows) {
+        await uploadToMonday(row, context, base64Raw, fileName);
+      }
     } else {
       context.log("⚠️ No classification result found.");
       context.log(`📎 Raw result: ${JSON.stringify(result, null, 2)}`);
