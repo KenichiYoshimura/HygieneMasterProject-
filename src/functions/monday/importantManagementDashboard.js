@@ -3,7 +3,7 @@
 if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
 }
-
+const { logMessage, handleError } = require('../utils');
 const axios = require('axios');
 const FormData = require('form-data');
 
@@ -98,11 +98,13 @@ function stripUndefined(obj) {
 }
 
 async function uploadToMonday(rowData, context, base64BinFile, originalFileName) {
-  context.log("🚀 uploadToMonday() called");
+  logMessage("🚀 uploadToMonday() called", context);
 
   const itemName = (rowData.name || '').trim();
   const targetDate = formatDate(rowData.date4); // must be "YYYY-MM-DD"
   const targetLocation = (rowData.text_mkv0z6d || '').trim();
+
+  logMessage("itemName, targetdate and TargetLocation retrieved", context);
 
   // 1) Exact server-side lookup (date + location)
   const lookupQuery = `
@@ -122,19 +124,26 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
 
   let existingItemId = null;
 
+  logMessage("just about to lookup", context);
+
   await throttleMutation();
   const lookupData = await gqlRequest(
     lookupQuery,
     { boardId: String(BOARD_ID), date: targetDate, loc: targetLocation },
     context
   );
+
+  logMessage("finished lookup", context);
+
   const found = lookupData.items_page_by_column_values?.items || [];
   if (found.length > 0) {
     existingItemId = found[0].id;
-    context.log(`✏️ Updating existing item with date "${targetDate}" and location "${targetLocation}" (ID: ${existingItemId})`);
+    logMessage(`✏️ Updating existing item with date "${targetDate}" and location "${targetLocation}" (ID: ${existingItemId})`, context);
   } else {
-    context.log("🆕 No matching item found. Will create new.");
+    logMessage("🆕 No matching item found. Will create new.", context);
   }
+
+  logMessage("Just about to upload the data", context);
 
   // 2) Prepare column values (date uses canonical JSON structure)
   const columnValues = stripUndefined({
@@ -153,6 +162,7 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
   let itemId;
 
   if (existingItemId) {
+    logMessage("Updating the existing record", context);
     // 2a) Update existing
     const updateMutation = `
       mutation UpdateItem($boardId: ID!, $itemId: ID!, $cols: JSON!) {
@@ -177,6 +187,7 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
     itemId = updateData.change_multiple_column_values.id;
     context.log(`✅ Updated item ID: ${itemId}`);
   } else {
+    logMessage("Creating new record", context);
     // (Optional) tiny randomized backoff to reduce races, then re-check
     await new Promise(r => setTimeout(r, Math.floor(Math.random() * 80)));
 
@@ -215,6 +226,8 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
     }
   }
 
+  logMessage("Just about to upload the file for record", context);
+  
   // 3) Upload file to the file column
   const fileBuffer = Buffer.from(base64BinFile, 'base64');
   const form = new FormData();
