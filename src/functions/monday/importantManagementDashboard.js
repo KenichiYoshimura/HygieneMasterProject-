@@ -10,6 +10,10 @@ const FormData = require('form-data');
 const MONDAY_API_TOKEN = process.env.MONDAY_API_KEY;
 const BOARD_ID = 9857035666;
 
+// simple in-memory gate across invocations within this process
+let lastMutationAt = 0;
+const MUTATION_SPACING_MS = 2000;
+
 async function gqlRequest(query, variables, context, opts = {}) {
   const {
     maxRetries = 5,
@@ -227,7 +231,7 @@ async function uploadToMonday(rowData, context, base64BinFile, originalFileName)
   }
 
   logMessage("Just about to upload the file for record", context);
-  
+
   // 3) Upload file to the file column
   const fileBuffer = Buffer.from(base64BinFile, 'base64');
   const form = new FormData();
