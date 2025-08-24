@@ -3,7 +3,7 @@ if (!process.env.WEBSITE_SITE_NAME) {
 }
 
 const axios = require('axios');
-const { logMessage, handleError } = require('./utils');
+const { logMessage, handleError } = require('../utils');
 
 const endpoint = process.env.EXTRACTOR_ENDPOINT;
 const apiKey = process.env.EXTRACTOR_ENDPOINT_AZURE_API_KEY;

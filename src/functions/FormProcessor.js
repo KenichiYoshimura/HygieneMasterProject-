@@ -4,9 +4,9 @@ if (!process.env.WEBSITE_SITE_NAME) {
 }
 
 const { app } = require('@azure/functions');
-const { extractImportantManagementData } = require('./extractors');
+const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
-const { classifyDocument } = require('./documentClassifier');
+const { classifyDocument } = require('./docIntelligence/documentClassifier');
 
 app.storageBlob('FormProcessor', {
   path: 'incoming-emails/{name}',
