@@ -1,7 +1,7 @@
 if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
 }
-
+const { logMessage, handleError } = require('./utils');
 const { app } = require('@azure/functions');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
@@ -10,35 +10,34 @@ const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
 
 function parseBlobName(blobName, context) {
-  context.log(`blob name : ${blobName}`);
+  logMessage(`blob name : ${blobName}`, context);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
   const match = blobName.match(regex);
 
-  context.log(`performed match : ${blobName}`);
-  context.log(`value of match is ${match}`);
+  logMessage(`performed match : ${blobName}`, context);
+  logMessage(`value of match is ${match}`, context);
   if (!match) {
-    context.log(`hello world`);
-    context.log.error(`❌ Invalid blob name format: ${blobName}`);
+    logMessage(`❌ Invalid blob name format: ${blobName}`, context);
     return null;
   }
-  context.log(`blob name is ok : ${blobName}`);
+  logMessage(`blob name is ok : ${blobName}`);
 
   const timestamp = match[1];
   const senderEmail = match[2];
   const fileNameWithExt = match[3];
   const extension = fileNameWithExt.slice(fileNameWithExt.lastIndexOf('.')).toLowerCase();
 
-  context.log(`timestamp : ${timestamp}`);
-  context.log(`senderEmail : ${senderEmail}`);
-  context.log(`fileNameWithExt : ${fileNameWithExt}`);
-  context.log(`extension : ${extension}`);
+  logMessage(`timestamp : ${timestamp}`, context);
+  logMessage(`senderEmail : ${senderEmail}`, context);
+  logMessage(`fileNameWithExt : ${fileNameWithExt}`, context);
+  logMessage(`extension : ${extension}`, context);
 
   if (!supportedExtensions.includes(extension)) {
-    context.log.error(`❌ Unsupported file type: ${extension} in blob ${blobName}`);
+    logMessage(`❌ Unsupported file type: ${extension} in blob ${blobName}`, context);
     return null;
   }
 
-  context.log(`doen parseBlobName`);
+  logMessage(`doen parseBlobName`, context);
   
   return {
     timestamp,
@@ -54,15 +53,15 @@ app.storageBlob('FormProcessor', {
   handler: async (blob, context) => {
     try {
       const blobName = context.triggerMetadata.name;
-      context.log(`📄 File uploaded: ${blobName}`);
+      logMessage(`📄 File uploaded: ${blobName}`, context);
 
       const parsed = parseBlobName(blobName, context);
       if (!parsed) {
-        context.log("⏭️ Skipping file due to format or unsupported type.");
+        logMessage("⏭️ Skipping file due to format or unsupported type.", context);
         return;
       }
 
-      context.log("📄 Starting classification...");
+      logMessage("📄 Starting classification...", context);
       const classification = await classifyDocument(context, blob, parsed.fileName);
       if (!classification) return;
 
@@ -70,19 +69,19 @@ app.storageBlob('FormProcessor', {
 
       if (result?.analyzeResult?.documents?.length > 0) {
         const doc = result.analyzeResult.documents[0];
-        context.log(`📄 Got the document Type: ${doc.docType}`);
+        logMessage(`📄 Got the document Type: ${doc.docType}`, context);
 
         const extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
         for (const { row, fileName } of extractedRows) {
           await uploadToMonday(row, context, base64Raw, fileName);
         }
       } else {
-        context.log("⚠️ No classification result found.");
-        context.log(`📎 Raw result: ${JSON.stringify(result, null, 2)}`);
+        logMessage("⚠️ No classification result found.", context);
+        logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
       }
     } catch (error) {
-      context.log.error("❌ Unexpected error occurred:", error.message);
-      context.log.error(error.stack);
+      logMessage("❌ Unexpected error occurred:", error.message, context);
+      logMessage(error.stack, context);
     }
   }
 });
