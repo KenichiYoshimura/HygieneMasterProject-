@@ -9,7 +9,8 @@ const { classifyDocument } = require('./docIntelligence/documentClassifier');
 
 const INCOMING_CONTAINER = 'incoming-emails';
 const INVALID_CONTAINER = 'invalid-attachments';
-const STORAGE_CONNECTION = 'hygienemasterstorage_STORAGE';
+const STORAGE_CONNECTION = process.env.hygienemasterstorage_STORAGE;
+
 
 const DEFAULT_ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.heic', '.heif'];
 const DEFAULT_ALLOWED_MIMES = [
