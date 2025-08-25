@@ -17,6 +17,7 @@ const DEFAULT_ALLOWED_MIMES = [
 ];
 
 function detectFromMagic(buffer) {
+  const ALLOW_HEIC = true;
   if (!Buffer.isBuffer(buffer)) return { ext: '', mime: '', confidence: 'low' };
   const b = buffer.subarray(0, 12);
   if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2D)
@@ -31,7 +32,7 @@ function detectFromMagic(buffer) {
     return { ext: '.tiff', mime: 'image/tiff', confidence: 'high' };
   if (b[0] === 0x42 && b[1] === 0x4D)
     return { ext: '.bmp', mime: 'image/bmp', confidence: 'high' };
-  if (process.env.ALLOW_HEIC === 'true') {
+  if (ALLOW_HEIC) {
     const s = b.toString('ascii');
     if (s.includes('ftypheic') || s.includes('ftypheif') || s.includes('ftypmif1') || s.includes('ftypheix'))
       return { ext: '.heic', mime: 'image/heic', confidence: 'low' };
@@ -107,7 +108,7 @@ function parseBlobName(blobName) {
     };
   } catch (err) {
     return {
-     toISOString(),
+      receivedUtc: new Date().toISOString(),
       senderEmail,
       originalFileName
     };
@@ -154,7 +155,7 @@ async function moveToInvalidAttachments(context, buf, originalName, opts) {
 }
 
 app.storageBlob('FormProcessor', {
-  path: `${INCOMING_CONTAINER}/{name}`,
+  path: 'incoming-emails/{name}',
   connection: 'hygienemasterstorage_STORAGE',
   handler: async (blob, context) => {
     const blobName = context.triggerMetadata.name;
