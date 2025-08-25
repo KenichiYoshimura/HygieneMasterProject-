@@ -8,6 +8,7 @@ const { app } = require('@azure/functions');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./docIntelligence/documentClassifier');
+const { detectTitleFromDocument } = require('./docIntelligence/ocrTitleDetector');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
 
@@ -88,6 +89,17 @@ app.storageBlob('FormProcessor', {
         logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
       }
+
+      // Try OCR-based title detection first
+    const detectedTitle = await detectTitleFromDocument(context, blob, parsed.extension === '.pdf' ? 'application/pdf' : `image/${parsed.extension.replace('.', '')}`);
+    if (detectedTitle) {
+      logMessage(`🔍 Title detected via OCR: ${detectedTitle}`, context);
+      // You can skip classification or use this as a fallback
+      return;
+    } else {
+      logMessage(`failed to detect title via OCR`, context);
+      return;
+    }
 
       logMessage("📄 Starting classification...", context);
       const classification = await classifyDocument(context, blob, parsed.fileName);

@@ -7,6 +7,7 @@
     "start": "func start"
   },
   "dependencies": {
+    "@azure/ai-form-recognizer": "^5.1.0",
     "@azure/functions": "^4.7.2-preview",
     "@azure/storage-blob": "^12.28.0",
     "axios": "^1.11.0",
