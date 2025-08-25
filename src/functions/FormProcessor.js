@@ -50,32 +50,36 @@ app.storageBlob('FormProcessor', {
   path: 'incoming-emails/{name}',
   connection: 'hygienemasterstorage_STORAGE',
   handler: async (blob, context) => {
-    const blobName = context.triggerMetadata.name;
-    context.log(`📄 File uploaded: ${blobName}`);
+    try {
+      const blobName = context.triggerMetadata.name;
+      context.log(`📄 File uploaded: ${blobName}`);
 
-    const parsed = parseBlobName(blobName, context);
-    if (!parsed) {
-      context.log("⏭️ Skipping file due to format or unsupported type.");
-      return;
-    }
-
-    context.log("📄 Starting classification...");
-    const classification = await classifyDocument(context, blob, parsed.fileName);
-    if (!classification) return;
-
-    const { result, mimeType, fileExtension, base64Raw } = classification;
-
-    if (result?.analyzeResult?.documents?.length > 0) {
-      const doc = result.analyzeResult.documents[0];
-      context.log(`📄 Got the document Type: ${doc.docType}`);
-
-      const extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
-      for (const { row, fileName } of extractedRows) {
-        await uploadToMonday(row, context, base64Raw, fileName);
+      const parsed = parseBlobName(blobName, context);
+      if (!parsed) {
+        context.log("⏭️ Skipping file due to format or unsupported type.");
+        return;
       }
-    } else {
-      context.log("⚠️ No classification result found.");
-      context.log(`📎 Raw result: ${JSON.stringify(result, null, 2)}`);
+
+      context.log("📄 Starting classification...");
+      const classification = await classifyDocument(context, blob, parsed.fileName);
+      if (!classification) return;
+
+      const { result, mimeType, fileExtension, base64Raw } = classification;
+
+      if (result?.analyzeResult?.documents?.length > 0) {
+        const doc = result.analyzeResult.documents[0];
+        context.log(`📄 Got the document Type: ${doc.docType}`);
+
+        const extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
+        for (const { row, fileName } of extractedRows) {
+          await uploadToMonday(row, context, base64Raw, fileName);
+        }
+      } else {
+        context.log("⚠️ No classification result found.");
+        context.log(`📎 Raw result: ${JSON.stringify(result, null, 2)}`);
+      }
+    } catch (error) {
+      log.error("❌ Unexpected error occurred:", error);
     }
   }
 });
