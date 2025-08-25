@@ -10,24 +10,34 @@ const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
 
 function parseBlobName(blobName, context) {
+  context.log(`blob name : ${blobName}`);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
   const match = blobName.match(regex);
 
+  context.log(`performed match : ${blobName}`);
   if (!match) {
     context.log.error(`❌ Invalid blob name format: ${blobName}`);
     return null;
   }
+  context.log(`blob name is ok : ${blobName}`);
 
   const timestamp = match[1];
   const senderEmail = match[2];
   const fileNameWithExt = match[3];
   const extension = fileNameWithExt.slice(fileNameWithExt.lastIndexOf('.')).toLowerCase();
 
+  context.log(`timestamp : ${timestamp}`);
+  context.log(`senderEmail : ${senderEmail}`);
+  context.log(`fileNameWithExt : ${fileNameWithExt}`);
+  context.log(`extension : ${extension}`);
+
   if (!supportedExtensions.includes(extension)) {
     context.log.error(`❌ Unsupported file type: ${extension} in blob ${blobName}`);
     return null;
   }
 
+  context.log(`doen parseBlobName`);
+  
   return {
     timestamp,
     senderEmail,
