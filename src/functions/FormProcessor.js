@@ -9,17 +9,12 @@ const { classifyDocument } = require('./docIntelligence/documentClassifier');
 
 const INCOMING_CONTAINER = 'incoming-emails';
 const INVALID_CONTAINER = 'invalid-attachments';
-const STORAGE_CONNECTION = process.env.hygienemasterstorage_STORAGE;
+const STORAGE_CONNECTION = 'hygienemasterstorage_STORAGE';
 
-const DEFAULT_ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp'];
+const DEFAULT_ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.heic', '.heif'];
 const DEFAULT_ALLOWED_MIMES = [
-  'application/pdf', 'image/jpeg', 'image/png', 'image/tiff', 'image/bmp'
+  'application/pdf', 'image/jpeg', 'image/png', 'image/tiff', 'image/bmp', 'image/heic', 'image/heif'
 ];
-
-if (process.env.ALLOW_HEIC === 'true') {
-  DEFAULT_ALLOWED_EXTS.push('.heic', '.heif');
-  DEFAULT_ALLOWED_MIMES.push('image/heic', 'image/heif');
-}
 
 function detectFromMagic(buffer) {
   if (!Buffer.isBuffer(buffer)) return { ext: '', mime: '', confidence: 'low' };
@@ -71,19 +66,57 @@ function decideType({ magic, fileExt, blobContentType }) {
 
 function parseBlobName(blobName) {
   const baseName = path.basename(blobName);
-  const parts = baseName.split('-');
-  if (parts.length < 4) return {
-    senderEmail: 'unknown',
-    customerInboxName: 'unknown',
-    receivedUtc: new Date().toISOString(),
-    originalFileName: baseName
-  };
-  return {
-    senderEmail: parts[0],
-    customerInboxName: parts[1],
-    receivedUtc: parts[2],
-    originalFileName: parts.slice(3).join('-')
-  };
+  const openParenIndex = baseName.indexOf('(');
+  const closeParenIndex = baseName.indexOf(')');
+
+  if (openParenIndex === -1 || closeParenIndex === -1 || closeParenIndex <= openParenIndex) {
+    return {
+      receivedUtc: new Date().toISOString(),
+      senderEmail: 'unknown',
+      originalFileName: baseName
+    };
+  }
+
+  const rawTimestamp = baseName.substring(0, openParenIndex); // e.g. 20250825T074500
+  const senderEmail = baseName.substring(openParenIndex + 1, closeParenIndex);
+  const originalFileName = baseName.substring(closeParenIndex + 1);
+
+  // Convert to JST and format as yyyy-mm-dd-hh:mm:ss
+  try {
+    const utcDate = new Date(
+      rawTimestamp.replace(
+        /^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})?$/,
+        '$1-$2-$3T$4:$5:$6Z'
+      )
+    );
+    const jstDate = new Date(utcDate.getTime() + 9 * 60 * 60 * 1000); // JST = UTC + 9h
+
+    const yyyy = jstDate.getFullYear();
+    const mm = String(jstDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(jstDate.getDate()).padStart(2, '0');
+    const hh = String(jstDate.getHours()).padStart(2, '0');
+    const min = String(jstDate.getMinutes()).padStart(2, '0');
+    const ss = String(jstDate.getSeconds()).padStart(2, '0');
+
+    const receivedUtc = `${yyyy}-${mm}-${dd}-${hh}_${min}_${ss}`;
+
+    return {
+      receivedUtc,
+      senderEmail,
+      originalFileName
+    };
+  } catch (err) {
+    return {
+     toISOString(),
+      senderEmail,
+      originalFileName
+    };
+  }
+}
+
+function toCustomerName(fromEmail) {
+  // TODO converts sender email address to company name.
+  return {name: "Wise Corp. Ltd."};
 }
 
 async function moveToInvalidAttachments(context, buf, originalName, opts) {
@@ -93,8 +126,8 @@ async function moveToInvalidAttachments(context, buf, originalName, opts) {
   await invalidCont.createIfNotExists({ access: 'off' });
 
   const baseName = path.basename(originalName);
-  const customerName = opts.customerInboxName || 'unknown';
   const yyyymmdd = opts.receivedUtc.replace(/[^0-9]/g, '').slice(0, 8);
+  const customerName = toCustomerName(opts.senderEmail).name;
   const destPath = `${customerName}/${yyyymmdd}/${baseName}`;
   const destBlob = invalidCont.getBlockBlobClient(destPath);
 
@@ -102,7 +135,6 @@ async function moveToInvalidAttachments(context, buf, originalName, opts) {
 
   const metadata = {
     senderEmail: opts.senderEmail || '',
-    customerInboxName: opts.customerInboxName || '',
     originalBlobUrl: opts.originalBlobUrl || '',
     reason: opts.reason || 'unsupported_file_type'
   };
@@ -129,7 +161,7 @@ app.storageBlob('FormProcessor', {
     const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
     context.log(`📄 File uploaded: ${blobName}. Starting pre-checks...`);
 
-    const { senderEmail, customerInboxName, receivedUtc, originalFileName } = parseBlobName(blobName);
+    const { senderEmail, receivedUtc, originalFileName } = parseBlobName(blobName);
     const fileExt = path.extname(originalFileName).toLowerCase();
     const blobContentType = context.bindingData.properties?.contentType || '';
 
@@ -137,12 +169,10 @@ app.storageBlob('FormProcessor', {
     const { fileExtension, mimeType, source } = decideType({ magic, fileExt, blobContentType });
 
     context.log(`🔎 Sender: ${senderEmail}`);
-    context.log(`🔎 Inbox: ${customerInboxName}`);
     context.log(`🔎 Type decision: ext=${fileExtension || '(none)'} mime=${mimeType || '(none)'} via=${source}`);
 
     if (!mimeType || !fileExtension) {
       const dest = await moveToInvalidAttachments(context, buf, blobName, {
-        customerInboxName,
         senderEmail,
         mimeType: blobContentType || 'application/octet-stream',
         receivedUtc,
@@ -157,7 +187,6 @@ app.storageBlob('FormProcessor', {
     const classification = await classifyDocument(context, buf, blobName);
     if (!classification || !classification.result || !classification.result.analyzeResult?.documents?.length) {
       const dest = await moveToInvalidAttachments(context, buf, blobName, {
-        customerInboxName,
         senderEmail,
         mimeType,
         receivedUtc,
