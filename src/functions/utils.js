@@ -16,7 +16,30 @@ function handleError(error, phase, context) {
     log(`[STACK] ${error.stack}`);
 }
 
+async function moveBlob(context, blobName, {
+  connectionString,
+  sourceContainerName,
+  targetContainerName,
+  targetSubfolder
+}) {
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+
+  const sourceContainer = blobServiceClient.getContainerClient(sourceContainerName);
+  const targetContainer = blobServiceClient.getContainerClient(targetContainerName);
+
+  const sourceBlobClient = sourceContainer.getBlobClient(blobName);
+  const targetBlobClient = targetContainer.getBlobClient(`${targetSubfolder}/${blobName}`);
+
+  const copyPoller = await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
+  await copyPoller.pollUntilDone();
+
+  await sourceBlobClient.delete();
+  context.log(`📦 Moved blob "${blobName}" to ${targetContainerName}/${targetSubfolder}/ and deleted original.`);
+}
+
+
 module.exports = {
     logMessage,
-    handleError
+    handleError,
+    moveBlob
 };

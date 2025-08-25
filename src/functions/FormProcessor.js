@@ -3,7 +3,7 @@ if (!process.env.WEBSITE_SITE_NAME) {
 }
 
 const { BlobServiceClient } = require('@azure/storage-blob');
-const { logMessage, handleError } = require('./utils');
+const { logMessage, handleError, moveBlob } = require('./utils');
 const { app } = require('@azure/functions');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
@@ -53,23 +53,6 @@ function parseBlobName(blobName, context) {
   };
 }
 
-async function moveBlob(context, blobName, targetContainerName, subfolder) {
-  const connectionString = process.env['hygienemasterstorage_STORAGE'];
-  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-
-  const sourceContainer = blobServiceClient.getContainerClient('incoming-emails');
-  const targetContainer = blobServiceClient.getContainerClient(targetContainerName);
-
-  const sourceBlobClient = sourceContainer.getBlobClient(blobName);
-  const targetBlobClient = targetContainer.getBlobClient(`${subfolder}/${blobName}`);
-
-  const copyPoller = await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
-  await copyPoller.pollUntilDone();
-
-  await sourceBlobClient.delete();
-  context.log(`📦 Moved blob "${blobName}" to ${targetContainerName}/${subfolder}/ and deleted original.`);
-}
-
 app.storageBlob('FormProcessor', {
   path: 'incoming-emails/{name}',
   connection: 'hygienemasterstorage_STORAGE',
@@ -80,7 +63,13 @@ app.storageBlob('FormProcessor', {
 
       const parsed = parseBlobName(blobName, context);
       if (!parsed?.isValid) {
-        await moveBlob(context, blobName, 'invalid-attachments', parsed.reason);
+        await moveBlob(context, blobName, {
+          connectionString: process.env['hygienemasterstorage_STORAGE'],
+          sourceContainerName: 'incoming-emails',
+          targetContainerName: 'invalid-attachments',
+          targetSubfolder: parsed.reason
+        });
+
         logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
       }
@@ -88,7 +77,13 @@ app.storageBlob('FormProcessor', {
       logMessage("📄 Starting classification...", context);
       const classification = await classifyDocument(context, blob, parsed.fileName);
       if (!classification) {
-        await moveBlob(context, blobName, 'processed-attachments', `${parsed.companyName}/classification-failures`);
+        await moveBlob(context, blobName, {
+          connectionString: process.env['hygienemasterstorage_STORAGE'],
+          sourceContainerName: 'incoming-emails',
+          targetContainerName: 'processed-attachments',
+          targetSubfolder: `${parsed.companyName}/classification-failures`
+        });
+
         logMessage("⚠️ Classification failed. Moved to classification-failures folder.", context);
         return;
       }
@@ -104,9 +99,21 @@ app.storageBlob('FormProcessor', {
           await uploadToMonday(row, context, base64Raw, fileName);
         }
 
-        await moveBlob(context, blobName, 'processed-attachments', parsed.companyName);
+        await moveBlob(context, blobName, {
+          connectionString: process.env['hygienemasterstorage_STORAGE'],
+          sourceContainerName: 'incoming-emails',
+          targetContainerName: 'processed-attachments',
+          targetSubfolder: parsed.companyName
+        });
+
       } else {
-        await moveBlob(context, blobName, 'processed-attachments', `${parsed.companyName}/classification-failures`);
+        await moveBlob(context, blobName, {
+          connectionString: process.env['hygienemasterstorage_STORAGE'],
+          sourceContainerName: 'incoming-emails',
+          targetContainerName: 'processed-attachments',
+          targetSubfolder: `${parsed.companyName}/classification-failures`
+        });
+
         logMessage("⚠️ No classification result found.", context);
         logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
       }
