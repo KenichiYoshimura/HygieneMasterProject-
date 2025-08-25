@@ -15,7 +15,9 @@ function parseBlobName(blobName, context) {
   const match = blobName.match(regex);
 
   context.log(`performed match : ${blobName}`);
+  context.log(`value of match is ${match}`);
   if (!match) {
+    context.log(`hello world`);
     context.log.error(`❌ Invalid blob name format: ${blobName}`);
     return null;
   }
