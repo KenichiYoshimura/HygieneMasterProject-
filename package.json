@@ -7,7 +7,7 @@
     "start": "func start"
   },
   "dependencies": {
-    "@azure/functions": "^4.4.0",
+    "@azure/functions": "^4.7.2-preview",
     "@azure/storage-blob": "^12.28.0",
     "axios": "^1.11.0",
     "form-data": "^4.0.4",
