@@ -53,21 +53,21 @@ function parseBlobName(blobName, context) {
   };
 }
 
-async function moveToInvalidContainer(context, blobName, reason) {
+async function moveBlob(context, blobName, targetContainerName, subfolder) {
   const connectionString = process.env['hygienemasterstorage_STORAGE'];
   const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
 
   const sourceContainer = blobServiceClient.getContainerClient('incoming-emails');
-  const targetContainer = blobServiceClient.getContainerClient('invalid-attachments');
+  const targetContainer = blobServiceClient.getContainerClient(targetContainerName);
 
   const sourceBlobClient = sourceContainer.getBlobClient(blobName);
-  const targetBlobClient = targetContainer.getBlobClient(`${reason}/${blobName}`);
+  const targetBlobClient = targetContainer.getBlobClient(`${subfolder}/${blobName}`);
 
   const copyPoller = await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
   await copyPoller.pollUntilDone();
 
   await sourceBlobClient.delete();
-  context.log(`🚮 Moved blob "${blobName}" to invalid-attachments/${reason}/ and deleted original.`);
+  context.log(`📦 Moved blob "${blobName}" to ${targetContainerName}/${subfolder}/ and deleted original.`);
 }
 
 app.storageBlob('FormProcessor', {
@@ -80,14 +80,18 @@ app.storageBlob('FormProcessor', {
 
       const parsed = parseBlobName(blobName, context);
       if (!parsed?.isValid) {
-        await moveToInvalidContainer(context, blobName, parsed.reason);
+        await moveBlob(context, blobName, 'invalid-attachments', parsed.reason);
         logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
       }
 
       logMessage("📄 Starting classification...", context);
       const classification = await classifyDocument(context, blob, parsed.fileName);
-      if (!classification) return;
+      if (!classification) {
+        await moveBlob(context, blobName, 'processed-attachments', `${parsed.companyName}/classification-failures`);
+        logMessage("⚠️ Classification failed. Moved to classification-failures folder.", context);
+        return;
+      }
 
       const { result, mimeType, fileExtension, base64Raw } = classification;
 
@@ -99,7 +103,10 @@ app.storageBlob('FormProcessor', {
         for (const { row, fileName } of extractedRows) {
           await uploadToMonday(row, context, base64Raw, fileName);
         }
+
+        await moveBlob(context, blobName, 'processed-attachments', parsed.companyName);
       } else {
+        await moveBlob(context, blobName, 'processed-attachments', `${parsed.companyName}/classification-failures`);
         logMessage("⚠️ No classification result found.", context);
         logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
       }
