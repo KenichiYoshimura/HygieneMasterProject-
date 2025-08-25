@@ -11,7 +11,6 @@ const INCOMING_CONTAINER = 'incoming-emails';
 const INVALID_CONTAINER = 'invalid-attachments';
 const STORAGE_CONNECTION = process.env.hygienemasterstorage_STORAGE;
 
-
 const DEFAULT_ALLOWED_EXTS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.heic', '.heif'];
 const DEFAULT_ALLOWED_MIMES = [
   'application/pdf', 'image/jpeg', 'image/png', 'image/tiff', 'image/bmp', 'image/heic', 'image/heif'
@@ -41,12 +40,20 @@ function detectFromMagic(buffer) {
   return { ext: '', mime: '', confidence: 'low' };
 }
 
-function decideType({ magic, fileExt, blobContentType }) {
+function getLastExtension(fileName) {
+  const parts = fileName.toLowerCase().split('.');
+  if (parts.length < 2) return '';
+  return '.' + parts[parts.length - 1];
+}
+
+function decideType({ magic, fileExt }) {
   const ALLOWED_EXTS = DEFAULT_ALLOWED_EXTS;
   const ALLOWED_MIMES = DEFAULT_ALLOWED_MIMES;
-  if (magic.mime && ALLOWED_MIMES.includes(magic.mime)) {
+
+  if (magic.mime && magic.confidence === 'high' && ALLOWED_MIMES.includes(magic.mime)) {
     return { fileExtension: magic.ext, mimeType: magic.mime, source: 'magic' };
   }
+
   if (fileExt && ALLOWED_EXTS.includes(fileExt)) {
     const map = {
       '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -55,14 +62,7 @@ function decideType({ magic, fileExt, blobContentType }) {
     };
     return { fileExtension: fileExt, mimeType: map[fileExt] || '', source: 'extension' };
   }
-  const ct = (blobContentType || '').toLowerCase();
-  if (ct && ALLOWED_MIMES.includes(ct)) {
-    const map = {
-      'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png',
-      'image/tiff': '.tiff', 'image/bmp': '.bmp', 'image/heic': '.heic', 'image/heif': '.heif'
-    };
-    return { fileExtension: map[ct] || '', mimeType: ct, source: 'contentType' };
-  }
+
   return { fileExtension: '', mimeType: '', source: 'unknown' };
 }
 
