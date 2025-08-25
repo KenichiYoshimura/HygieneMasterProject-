@@ -1,6 +1,8 @@
 if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
 }
+
+const { BlobServiceClient } = require('@azure/storage-blob');
 const { logMessage, handleError } = require('./utils');
 const { app } = require('@azure/functions');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
@@ -9,42 +11,63 @@ const { classifyDocument } = require('./docIntelligence/documentClassifier');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
 
+function getCustomerID(senderEmail) {
+  const domain = senderEmail.split('@')[1];
+  return { name: domain };
+}
+
 function parseBlobName(blobName, context) {
   logMessage(`blob name : ${blobName}`, context);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
   const match = blobName.match(regex);
 
-  logMessage(`performed match : ${blobName}`, context);
-  logMessage(`value of match is ${match}`, context);
   if (!match) {
     logMessage(`❌ Invalid blob name format: ${blobName}`, context);
-    return null;
+    return { isValid: false, reason: 'invalid-filename' };
   }
-  logMessage(`blob name is ok : ${blobName}`);
 
   const timestamp = match[1];
   const senderEmail = match[2];
   const fileNameWithExt = match[3];
   const extension = fileNameWithExt.slice(fileNameWithExt.lastIndexOf('.')).toLowerCase();
+  const companyName = getCustomerID(senderEmail).name;
 
   logMessage(`timestamp : ${timestamp}`, context);
   logMessage(`senderEmail : ${senderEmail}`, context);
   logMessage(`fileNameWithExt : ${fileNameWithExt}`, context);
   logMessage(`extension : ${extension}`, context);
+  logMessage(`companyName : ${companyName}`, context);
 
   if (!supportedExtensions.includes(extension)) {
     logMessage(`❌ Unsupported file type: ${extension} in blob ${blobName}`, context);
-    return null;
+    return { isValid: false, reason: companyName };
   }
 
-  logMessage(`doen parseBlobName`, context);
-  
   return {
+    isValid: true,
     timestamp,
     senderEmail,
     fileName: fileNameWithExt,
-    extension
+    extension,
+    companyName
   };
+}
+
+async function moveToInvalidContainer(context, blobName, reason) {
+  const connectionString = process.env['hygienemasterstorage_STORAGE'];
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+
+  const sourceContainer = blobServiceClient.getContainerClient('incoming-emails');
+  const targetContainer = blobServiceClient.getContainerClient('invalid-attachments');
+
+  const sourceBlobClient = sourceContainer.getBlobClient(blobName);
+  const targetBlobClient = targetContainer.getBlobClient(`${reason}/${blobName}`);
+
+  const copyPoller = await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
+  await copyPoller.pollUntilDone();
+
+  await sourceBlobClient.delete();
+  context.log(`🚮 Moved blob "${blobName}" to invalid-attachments/${reason}/ and deleted original.`);
 }
 
 app.storageBlob('FormProcessor', {
@@ -56,8 +79,9 @@ app.storageBlob('FormProcessor', {
       logMessage(`📄 File uploaded: ${blobName}`, context);
 
       const parsed = parseBlobName(blobName, context);
-      if (!parsed) {
-        logMessage("⏭️ Skipping file due to format or unsupported type.", context);
+      if (!parsed?.isValid) {
+        await moveToInvalidContainer(context, blobName, parsed.reason);
+        logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
       }
 
@@ -80,9 +104,7 @@ app.storageBlob('FormProcessor', {
         logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
       }
     } catch (error) {
-      logMessage("❌ Unexpected error occurred:", error.message, context);
-      logMessage(error.stack, context);
+      handleError("❌ Unexpected error occurred", error, context);
     }
   }
 });
-
