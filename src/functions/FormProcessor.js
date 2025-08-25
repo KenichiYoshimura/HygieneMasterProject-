@@ -17,6 +17,7 @@ function getCustomerID(senderEmail) {
 }
 
 const INVALID_ATTACHED_FILE_NAME = 'invalid-filename';
+const UNSUPPORTED_FILE_TYPE = 'invalid-file-type';
 
 function parseBlobName(blobName, context) {
   logMessage(`blob name : ${blobName}`, context);
@@ -42,7 +43,8 @@ function parseBlobName(blobName, context) {
 
   if (!supportedExtensions.includes(extension)) {
     logMessage(`❌ Unsupported file type: ${extension} in blob ${blobName}`, context);
-    return { isValid: false, reason: companyName };
+    return { isValid: false, reason: UNSUPPORTED_FILE_TYP, timestamp: timestamp, 
+      senderEmail: senderEmail, fileName: fileNameWithExt, extension, extension, companyName: companyName };
   }
 
   return {
