@@ -16,6 +16,8 @@ function getCustomerID(senderEmail) {
   return { name: domain };
 }
 
+const INVALID_ATTACHED_FILE_NAME = 'invalid-filename';
+
 function parseBlobName(blobName, context) {
   logMessage(`blob name : ${blobName}`, context);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
@@ -23,7 +25,7 @@ function parseBlobName(blobName, context) {
 
   if (!match) {
     logMessage(`❌ Invalid blob name format: ${blobName}`, context);
-    return { isValid: false, reason: 'invalid-filename' };
+    return { isValid: false, reason: INVALID_ATTACHED_FILE_NAME };
   }
 
   const timestamp = match[1];
@@ -63,12 +65,23 @@ app.storageBlob('FormProcessor', {
 
       const parsed = parseBlobName(blobName, context);
       if (!parsed?.isValid) {
-        await moveBlob(context, blobName, {
-          connectionString: process.env['hygienemasterstorage_STORAGE'],
-          sourceContainerName: 'incoming-emails',
-          targetContainerName: 'invalid-attachments',
-          targetSubfolder: parsed.reason
-        });
+        logMessage(`📄 Error reason is : ${parsed.reason}`, context);
+  
+        if (parsed.reason === INVALID_ATTACHED_FILE_NAME) {
+          await moveBlob(context, blobName, {
+            connectionString: process.env['hygienemasterstorage_STORAGE'],
+            sourceContainerName: 'incoming-emails',
+            targetContainerName: 'invalid-attachments',
+            targetSubfolder: parsed.reason
+          });
+        } else {
+          await moveBlob(context, blobName, {
+            connectionString: process.env['hygienemasterstorage_STORAGE'],
+            sourceContainerName: 'incoming-emails',
+            targetContainerName: 'processed-attachments',
+            targetSubfolder: `${parsed.companyName}/invalid-attachments`
+          });
+        }
 
         logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
