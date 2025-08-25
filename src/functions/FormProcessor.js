@@ -79,7 +79,8 @@ app.storageBlob('FormProcessor', {
         context.log(`📎 Raw result: ${JSON.stringify(result, null, 2)}`);
       }
     } catch (error) {
-      log.error("❌ Unexpected error occurred:", error);
+      context.log.error("❌ Unexpected error occurred:", error.message);
+      context.log.error(error.stack);
     }
   }
 });
