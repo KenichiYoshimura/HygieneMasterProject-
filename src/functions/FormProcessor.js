@@ -23,7 +23,7 @@ function getCustomerID(senderEmail) {
 }
 
 function parseBlobName(blobName, context) {
-  logMessage(`🔍 Parsing blob name: ${blobName}`, context);
+  logMessage(`🔍 Parsing blob name: ${blobName}.. Progressing...`, context);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
   const match = blobName.match(regex);
 
