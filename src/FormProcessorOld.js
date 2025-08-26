@@ -10,20 +10,20 @@ const { extractImportantManagementData } = require('./docIntelligence/importantM
 const { uploadToMondayGeneralManagementBoard } = require('./monday/generaltManagementDashboard');
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./docIntelligence/documentClassifier');
-const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM } = require('./docIntelligence/ocrTitleDetector');
+const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM} = require('./docIntelligence/ocrTitleDetector');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
-
-const INVALID_ATTACHED_FILE_NAME = 'invalid-filename';
-const UNSUPPORTED_FILE_TYPE = 'invalid-file-type';
 
 function getCustomerID(senderEmail) {
   const domain = senderEmail.split('@')[1];
   return { name: domain };
 }
 
+const INVALID_ATTACHED_FILE_NAME = 'invalid-filename';
+const UNSUPPORTED_FILE_TYPE = 'invalid-file-type';
+
 function parseBlobName(blobName, context) {
-  logMessage(`🔍 Parsing blob name: ${blobName}`, context);
+  logMessage(`blob name : ${blobName}`, context);
   const regex = /^(.+?)\((.+?)\)(.+)$/;
   const match = blobName.match(regex);
 
@@ -38,19 +38,16 @@ function parseBlobName(blobName, context) {
   const extension = fileNameWithExt.slice(fileNameWithExt.lastIndexOf('.')).toLowerCase();
   const companyName = getCustomerID(senderEmail).name;
 
-  logMessage(`🧩 Parsed values → timestamp: ${timestamp}, senderEmail: ${senderEmail}, fileName: ${fileNameWithExt}, extension: ${extension}, companyName: ${companyName}`, context);
+  logMessage(`timestamp : ${timestamp}`, context);
+  logMessage(`senderEmail : ${senderEmail}`, context);
+  logMessage(`fileNameWithExt : ${fileNameWithExt}`, context);
+  logMessage(`extension : ${extension}`, context);
+  logMessage(`companyName : ${companyName}`, context);
 
   if (!supportedExtensions.includes(extension)) {
-    logMessage(`❌ Unsupported file type: ${extension}`, context);
-    return {
-      isValid: false,
-      reason: UNSUPPORTED_FILE_TYPE,
-      timestamp,
-      senderEmail,
-      fileName: fileNameWithExt,
-      extension,
-      companyName
-    };
+    logMessage(`❌ Unsupported file type: ${extension} in blob ${blobName}`, context);
+    return { isValid: false, reason: UNSUPPORTED_FILE_TYPE, timestamp: timestamp, 
+      senderEmail: senderEmail, fileName: fileNameWithExt, extension, extension, companyName: companyName };
   }
 
   return {
@@ -69,50 +66,53 @@ app.storageBlob('FormProcessor', {
   handler: async (blob, context) => {
     try {
       const blobName = context.triggerMetadata.name;
-      logMessage(`📥 Blob triggered: ${blobName}`, context);
+      logMessage(`📄 File uploaded: ${blobName}`, context);
 
       const parsed = parseBlobName(blobName, context);
       if (!parsed?.isValid) {
-        logMessage(`📄 Invalid file. Reason: ${parsed.reason}`, context);
+        logMessage(`📄 Error reason is : ${parsed.reason}`, context);
+  
+        if (parsed.reason === INVALID_ATTACHED_FILE_NAME) {
+          await moveBlob(context, blobName, {
+            connectionString: process.env['hygienemasterstorage_STORAGE'],
+            sourceContainerName: 'incoming-emails',
+            targetContainerName: 'invalid-attachments',
+            targetSubfolder: parsed.reason
+          });
+        } else {
+          await moveBlob(context, blobName, {
+            connectionString: process.env['hygienemasterstorage_STORAGE'],
+            sourceContainerName: 'incoming-emails',
+            targetContainerName: 'processed-attachments',
+            targetSubfolder: `${parsed.companyName}/invalid-attachments`
+          });
+        }
 
-        const targetContainer = parsed.reason === INVALID_ATTACHED_FILE_NAME ? 'invalid-attachments' : 'processed-attachments';
-        const targetSubfolder = parsed.reason === INVALID_ATTACHED_FILE_NAME ? parsed.reason : `${parsed.companyName}/invalid-attachments`;
-
-        await moveBlob(context, blobName, {
-          connectionString: process.env['hygienemasterstorage_STORAGE'],
-          sourceContainerName: 'incoming-emails',
-          targetContainerName: targetContainer,
-          targetSubfolder
-        });
-
-        logMessage(`📦 Moved invalid file to ${targetContainer}/${targetSubfolder}`, context);
+        logMessage("⏭️ Skipped and moved file due to format or unsupported type.", context);
         return;
       }
 
-      logMessage(`🔍 Starting OCR title detection...`, context);
-      const mimeType = parsed.extension === '.pdf' ? 'application/pdf' : `image/${parsed.extension.replace('.', '')}`;
-      const detectedTitle = await detectTitleFromDocument(context, blob, mimeType);
-
+        // Try OCR-based title detection first
+      const detectedTitle = await detectTitleFromDocument(context, blob, parsed.extension === '.pdf' ? 'application/pdf' : `image/${parsed.extension.replace('.', '')}`);
       if (detectedTitle) {
-        logMessage(`📘 OCR detected title: ${detectedTitle}`, context);
+        logMessage(`🔍 Title detected via OCR: ${detectedTitle}`, context);
         const base64Raw = blob.toString('base64');
         const fileExtension = parsed.extension.replace('.', '');
         const companyName = parsed.companyName;
-
         await processExtractedData(context, {
-          title: detectedTitle,
-          base64Raw,
-          fileExtension,
-          blobName,
-          companyName
-        });
-        return;
+              title: detectedTitle,
+              base64Raw,
+              fileExtension,
+              blobName,
+              companyName
+          });
+          return;
       } else {
-        logMessage(`⚠️ OCR failed to detect title. Skipping file.`, context);
+        logMessage(`failed to detect title via OCR`, context);
         return;
       }
     } catch (error) {
-      handleError("❌ Unexpected error occurred in Blob handler", error, context);
+      handleError("❌ Unexpected error occurred", error, context);
     }
   }
 });
@@ -125,27 +125,20 @@ async function processExtractedData(context, {
   companyName
 }) {
   try {
-    logMessage(`🧠 Starting data extraction for title: ${title}`, context);
     let extractedRows;
 
     if (title === GENERAL_MANAGEMENT_FORM) {
       extractedRows = await extractGeneralManagementData(context, base64Raw, fileExtension);
-      logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
-
       for (const { row, fileName } of extractedRows) {
-        logMessage(`📤 Uploading row to Monday.com (一般管理): ${fileName}`, context);
         await uploadToMondayGeneralManagementBoard(row, context, base64Raw, fileName);
       }
     } else if (title === IMPORTANT_MANAGEMENT_FORM) {
       extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
-      logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
-
       for (const { row, fileName } of extractedRows) {
-        logMessage(`📤 Uploading row to Monday.com (重要管理): ${fileName}`, context);
         await uploadToMonday(row, context, base64Raw, fileName);
       }
     } else {
-      logMessage(`⚠️ Unknown form title: ${title}. Extraction skipped.`, context);
+      logMessage(`⚠️ Unknown form title: ${title}`, context);
       return;
     }
 
@@ -156,7 +149,7 @@ async function processExtractedData(context, {
       targetSubfolder: companyName
     });
 
-    logMessage(`✅ Successfully processed and moved blob: ${blobName} to processed-attachments/${companyName}`, context);
+    logMessage(`✅ Successfully processed and moved blob: ${blobName}`, context);
   } catch (error) {
     handleError("❌ Error during data extraction/upload", error, context);
   }
