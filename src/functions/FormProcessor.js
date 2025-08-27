@@ -12,7 +12,7 @@ const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM } = require('./docIntelligence/ocrTitleDetector');
 
-const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];
+const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
 const INVALID_ATTACHED_FILE_NAME = 'invalid-filename';
 const UNSUPPORTED_FILE_TYPE = 'invalid-file-type';
@@ -90,7 +90,8 @@ app.storageBlob('FormProcessor', {
       }
 
       logMessage(`🔍 Starting OCR title detection...`, context);
-      const mimeType = parsed.extension === '.pdf' ? 'application/pdf' : `image/${parsed.extension.replace('.', '')}`;
+      const mimeType = parsed.extension === '.pdf' ? 'application/pdf' : parsed.extension === '.heic' ? 'image/heif' : `image/${parsed.extension.replace('.', '')}`;
+
       const detectedTitle = await detectTitleFromDocument(context, blob, mimeType);
 
       if (detectedTitle) {
