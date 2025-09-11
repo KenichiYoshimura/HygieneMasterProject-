@@ -1,4 +1,5 @@
 const { BlobServiceClient } = require('@azure/storage-blob');
+const heicConvert = require('heic-convert'); 
 
 function logMessage(message, context) {
     if (context && context.log) {
@@ -63,9 +64,25 @@ async function moveBlob(context, blobName, {
   }
 }
 
+// Add HEIC to JPEG conversion utility
+async function convertHeicToJpegIfNeeded(buffer, originalFileName, context) {
+  if (originalFileName.toLowerCase().endsWith('.heic')) {
+    context?.log?.("🔄 Converting HEIC to JPEG...");
+    const jpegBuffer = await heicConvert({
+      buffer,
+      format: 'JPEG',
+      quality: 1
+    });
+    const newFileName = originalFileName.replace(/\.heic$/i, '.jpg');
+    context?.log?.("✅ HEIC converted to JPEG.");
+    return { buffer: jpegBuffer, filename: newFileName };
+  }
+  return { buffer, filename: originalFileName };
+}
 
 module.exports = {
     logMessage,
     handleError,
-    moveBlob
+    moveBlob,
+    convertHeicToJpegIfNeeded
 };

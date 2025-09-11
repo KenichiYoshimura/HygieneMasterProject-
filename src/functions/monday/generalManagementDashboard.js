@@ -3,7 +3,7 @@
 if (!process.env.WEBSITE_SITE_NAME) {
   require('dotenv').config();
 }
-const { logMessage, handleError } = require('../utils');
+const { logMessage, handleError, convertHeicToJpegIfNeeded} = require('../utils');
 const axios = require('axios');
 const FormData = require('form-data');
 
@@ -179,7 +179,14 @@ async function uploadToMondayGeneralManagementBoard(rowData, context, base64BinF
   logMessage("Just about to upload the file for record", context);
 
   // 3) Upload file to the file column
-  const fileBuffer = Buffer.from(base64BinFile, 'base64');
+  let fileBuffer = Buffer.from(base64BinFile, 'base64');
+  let fileNameToUpload = originalFileName;
+
+  // Convert HEIC to JPEG if needed
+  const converted = await convertHeicToJpegIfNeeded(fileBuffer, originalFileName, context);
+  fileBuffer = converted.buffer;
+  fileNameToUpload = converted.filename;
+
   const form = new FormData();
   form.append('query', `
     mutation ($file: File!) {
@@ -188,7 +195,7 @@ async function uploadToMondayGeneralManagementBoard(rowData, context, base64BinF
       }
     }
   `);
-  form.append('variables[file]', fileBuffer, { filename: originalFileName });
+  form.append('variables[file]', fileBuffer, { filename: fileNameToUpload });
 
   const fileUploadResponse = await axios.post(
     'https://api.monday.com/v2/file',
