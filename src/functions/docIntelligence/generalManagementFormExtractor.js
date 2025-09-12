@@ -91,7 +91,7 @@ async function extractGeneralManagementData(context, base64BinFile, fileExtensio
         }
 
         const approverStatus = getCheckStatus(fields[`D${day}Approver`]);
-        const comment = fields[`D${day}Comment`]?.valueString || "not found";
+        const comment = fields[`D${day}comment`]?.valueString || "not found";
 
         logMessage(`  💬 Comment: ${comment}`, context);
         logMessage(`  👤 Approver: ${approverStatus}`, context);
