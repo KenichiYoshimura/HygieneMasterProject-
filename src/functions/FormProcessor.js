@@ -11,6 +11,8 @@ const { uploadToMondayGeneralManagementBoard } = require('./monday/generalManage
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM } = require('./docIntelligence/ocrTitleDetector');
+const { prepareGeneralManagementReport} = require('./sharepoint/generalManagementReport');
+const { prepareImportantManagementReport} = require('./sharepoint/importantManagementReport');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
@@ -133,6 +135,8 @@ async function processExtractedData(context, {
       extractedRows = await extractGeneralManagementData(context, base64Raw, fileExtension);
       logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
 
+      prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
+
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (一般管理): ${fileName}`, context);
         await uploadToMondayGeneralManagementBoard(row, context, base64Raw, fileName);
@@ -141,6 +145,8 @@ async function processExtractedData(context, {
       extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
       logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
 
+      prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
+      
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (重要管理): ${fileName}`, context);
         await uploadToMonday(row, context, base64Raw, fileName);
