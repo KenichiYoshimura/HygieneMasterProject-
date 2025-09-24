@@ -137,20 +137,24 @@ async function processExtractedData(context, {
 
       prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
 
+      /* Uncomment below to upload to Monday.com
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (一般管理): ${fileName}`, context);
         await uploadToMondayGeneralManagementBoard(row, context, base64Raw, fileName);
       }
+      */
     } else if (title === IMPORTANT_MANAGEMENT_FORM) {
       extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
       logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
 
       prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
-      
+
+      /* Uncomment below to upload to Monday.com 
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (重要管理): ${fileName}`, context);
         await uploadToMonday(row, context, base64Raw, fileName);
       }
+      */
     } else {
       logMessage(`⚠️ Unknown form title: ${title}. Extraction skipped.`, context);
       return;
