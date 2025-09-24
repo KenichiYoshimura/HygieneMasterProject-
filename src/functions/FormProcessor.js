@@ -137,6 +137,7 @@ async function processExtractedData(context, {
 
       prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
 
+      logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (一般管理): ${fileName}`, context);
@@ -149,6 +150,7 @@ async function processExtractedData(context, {
 
       prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
 
+      logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com 
       for (const { row, fileName } of extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (重要管理): ${fileName}`, context);
@@ -159,6 +161,8 @@ async function processExtractedData(context, {
       logMessage(`⚠️ Unknown form title: ${title}. Extraction skipped.`, context);
       return;
     }
+
+    logMessage(`📦 Moving processed blob to processed-attachments/${companyName}`, context);
 
     await moveBlob(context, blobName, {
       connectionString: process.env['hygienemasterstorage_STORAGE'],
