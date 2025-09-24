@@ -60,18 +60,18 @@ async function extractImportantManagementData(context, base64BinFile, fileExtens
       const year = rawYear && /^\d{4}$/.test(rawYear) ? rawYear : "0000";
       const month = rawMonth && /^\d{1,2}$/.test(rawMonth) ? rawMonth.padStart(2, '0') : "00";
 
-      const categories = [];
-      categories[0] = fields.Menu1 || "not found";
-      categories[1] = fields.Menu2 || "not found";
-      categories[2] = fields.Menu3 || "not found";
-      categories[3] = fields.Menu4 || "not found";
-      categories[4] = fields.Menu5 || "not found";
-      categories[5] = fields.Menu6 || "not found";
-      categories[6] = fields.Menu7 || "not found";
+      // Extract menu items
+      const menuItems = [];
+      menuItems[0] = fields.Menu1?.valueString || "not found";
+      menuItems[1] = fields.Menu2?.valueString || "not found";
+      menuItems[2] = fields.Menu3?.valueString || "not found";
+      menuItems[3] = fields.Menu4?.valueString || "not found";
+      menuItems[4] = fields.Menu5?.valueString || "not found";
+      // Add more menu items as needed
 
-      logMessage('Categories:', context);
-      categories.forEach((cat, index) => {
-        logMessage(`  - Menu${index + 1}: ${cat.valueString || "not found"}`, context);
+      logMessage('Menu Items:', context);
+      menuItems.forEach((item, index) => {
+        logMessage(`  - Menu${index + 1}: ${item}`, context);
       });
 
       const extractedRows = [];
@@ -135,16 +135,26 @@ async function extractImportantManagementData(context, base64BinFile, fileExtens
         });
       }
 
-      return extractedRows;
+      // Return both extractedRows and menuItems
+      return {
+        extractedRows,
+        menuItems
+      };
+
     } else {
       logMessage("⚠️ No fields extracted.", context);
-      logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
-      return [];
+      return {
+        extractedRows: [],
+        menuItems: []
+      };
     }
 
   } catch (error) {
     handleError(error, 'extract', context);
-    return [];
+    return {
+      extractedRows: [],
+      menuItems: []
+    };
   }
 }
 

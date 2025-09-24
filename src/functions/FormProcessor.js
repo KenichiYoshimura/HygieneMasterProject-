@@ -11,8 +11,8 @@ const { uploadToMondayGeneralManagementBoard } = require('./monday/generalManage
 const { uploadToMonday } = require('./monday/importantManagementDashboard');
 const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM } = require('./docIntelligence/ocrTitleDetector');
-const { prepareGeneralManagementReport} = require('./sharepoint/generalManagementReport');
-const { prepareImportantManagementReport} = require('./sharepoint/importantManagementReport');
+const { prepareGeneralManagementReport } = require('./sharepoint/generalManagementReport');
+const { prepareImportantManagementReport } = require('./sharepoint/importantManagementReport');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
@@ -129,14 +129,15 @@ async function processExtractedData(context, {
 }) {
   try {
     logMessage(`🧠 Starting data extraction for title: ${title}`, context);
-    let extractedRows;
-
+    
     if (title === GENERAL_MANAGEMENT_FORM) {
-      extractedRows = await extractGeneralManagementData(context, base64Raw, fileExtension);
+      const result = await extractGeneralManagementData(context, base64Raw, fileExtension);
+      const { extractedRows, categories } = result;
+      
       logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
 
       logMessage('just about to start the report preparation', context);
-      await prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
+      await prepareGeneralManagementReport(extractedRows, categories, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com
@@ -146,11 +147,13 @@ async function processExtractedData(context, {
       }
       */
     } else if (title === IMPORTANT_MANAGEMENT_FORM) {
-      extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
+      const result = await extractImportantManagementData(context, base64Raw, fileExtension);
+      const { extractedRows, menuItems } = result;
+      
       logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
 
       logMessage('just about to start the report preparation', context);
-      await prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
+      await prepareImportantManagementReport(extractedRows, menuItems, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com 

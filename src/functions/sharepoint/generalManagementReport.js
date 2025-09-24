@@ -3,13 +3,19 @@ const axios = require('axios');
 const FormData = require('form-data');
 
 
-async function prepareGeneralManagementReport(extractedRows, context, base64BinFile, originalFileName) {
+async function prepareGeneralManagementReport(extractedRows, categories, context, base64BinFile, originalFileName) {
     logMessage("🚀 prepareGeneralManagementReport() called", context);
     logMessage('############################# extractedRows');
     logMessage(extractedRows);
-    logMessage('#############################');
-    logMessage(base64BinFile);
+     logMessage('############################# categories');
+    logMessage(categories);
     logMessage('############################# base64BinFile');
-    logMessage(originalFileName);
+    logMessage(base64BinFile);
     logMessage('############################# originalFileName');
+    logMessage(originalFileName);
+    logMessage('############################# ');
 }
+
+module.exports = {
+  prepareGeneralManagementReport
+};

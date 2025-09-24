@@ -61,17 +61,17 @@ async function extractGeneralManagementData(context, base64BinFile, fileExtensio
       const month = rawMonth && /^\d{1,2}$/.test(rawMonth) ? rawMonth.padStart(2, '0') : "00";
 
       const categories = [];
-      categories[0] = fields.Cat1 || "not found";
-      categories[1] = fields.Cat2 || "not found";
-      categories[2] = fields.Cat3 || "not found";
-      categories[3] = fields.Cat4 || "not found";
-      categories[4] = fields.Cat5 || "not found";
-      categories[5] = fields.Cat6 || "not found";
-      categories[6] = fields.Cat7 || "not found";
+      categories[0] = fields.Cat1?.valueString || "not found";
+      categories[1] = fields.Cat2?.valueString || "not found";
+      categories[2] = fields.Cat3?.valueString || "not found";
+      categories[3] = fields.Cat4?.valueString || "not found";
+      categories[4] = fields.Cat5?.valueString || "not found";
+      categories[5] = fields.Cat6?.valueString || "not found";
+      categories[6] = fields.Cat7?.valueString || "not found";
 
       logMessage('Categories:', context);
       categories.forEach((cat, index) => {
-        logMessage(`  - Cat${index + 1}: ${cat.valueString || "not found"}`, context);
+        logMessage(`  - Cat${index + 1}: ${cat}`, context);
       });
 
       const extractedRows = [];
@@ -150,16 +150,26 @@ async function extractGeneralManagementData(context, base64BinFile, fileExtensio
         });
       }
 
-      return extractedRows;
+      // Return both extractedRows and categories
+      return {
+        extractedRows,
+        categories
+      };
+
     } else {
       logMessage("⚠️ No fields extracted.", context);
-      logMessage(`📎 Raw result: ${JSON.stringify(result, null, 2)}`, context);
-      return [];
+      return {
+        extractedRows: [],
+        categories: []
+      };
     }
 
   } catch (error) {
     handleError(error, 'extract', context);
-    return [];
+    return {
+      extractedRows: [],
+      categories: []
+    };
   }
 }
 
