@@ -135,6 +135,7 @@ async function processExtractedData(context, {
       extractedRows = await extractGeneralManagementData(context, base64Raw, fileExtension);
       logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
 
+      logMessage('just about to start the report preparation', context);
       prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
@@ -148,6 +149,7 @@ async function processExtractedData(context, {
       extractedRows = await extractImportantManagementData(context, base64Raw, fileExtension);
       logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
 
+      logMessage('just about to start the report preparation', context);
       prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
