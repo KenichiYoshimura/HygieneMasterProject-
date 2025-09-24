@@ -136,7 +136,7 @@ async function processExtractedData(context, {
       logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
 
       logMessage('just about to start the report preparation', context);
-      prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
+      await prepareGeneralManagementReport(extractedRows, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com
@@ -150,7 +150,7 @@ async function processExtractedData(context, {
       logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
 
       logMessage('just about to start the report preparation', context);
-      prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
+      await prepareImportantManagementReport(extractedRows, context, base64Raw, blobName);
 
       logMessage(`Finished generating the report`, context);
       /* Uncomment below to upload to Monday.com 
