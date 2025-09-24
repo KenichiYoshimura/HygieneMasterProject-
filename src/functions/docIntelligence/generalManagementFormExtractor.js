@@ -60,6 +60,20 @@ async function extractGeneralManagementData(context, base64BinFile, fileExtensio
       const year = rawYear && /^\d{4}$/.test(rawYear) ? rawYear : "0000";
       const month = rawMonth && /^\d{1,2}$/.test(rawMonth) ? rawMonth.padStart(2, '0') : "00";
 
+      const categories = [];
+      categories[0] = fields.Cat1 || "not found";
+      categories[1] = fields.Cat2 || "not found";
+      categories[2] = fields.Cat3 || "not found";
+      categories[3] = fields.Cat4 || "not found";
+      categories[4] = fields.Cat5 || "not found";
+      categories[5] = fields.Cat6 || "not found";
+      categories[6] = fields.Cat7 || "not found";
+
+      logMessage('Categories:', context);
+      categories.forEach((cat, index) => {
+        logMessage(`  - Cat${index + 1}: ${cat.valueString || "not found"}`, context);
+      });
+
       const extractedRows = [];
 
       for (let day = 1; day <= 7; day++) {

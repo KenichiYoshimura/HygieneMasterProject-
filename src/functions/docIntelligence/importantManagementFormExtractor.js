@@ -60,6 +60,20 @@ async function extractImportantManagementData(context, base64BinFile, fileExtens
       const year = rawYear && /^\d{4}$/.test(rawYear) ? rawYear : "0000";
       const month = rawMonth && /^\d{1,2}$/.test(rawMonth) ? rawMonth.padStart(2, '0') : "00";
 
+      const categories = [];
+      categories[0] = fields.Menu1 || "not found";
+      categories[1] = fields.Menu2 || "not found";
+      categories[2] = fields.Menu3 || "not found";
+      categories[3] = fields.Menu4 || "not found";
+      categories[4] = fields.Menu5 || "not found";
+      categories[5] = fields.Menu6 || "not found";
+      categories[6] = fields.Menu7 || "not found";
+
+      logMessage('Categories:', context);
+      categories.forEach((cat, index) => {
+        logMessage(`  - Menu${index + 1}: ${cat.valueString || "not found"}`, context);
+      });
+
       const extractedRows = [];
 
       for (let day = 1; day <= 7; day++) {
