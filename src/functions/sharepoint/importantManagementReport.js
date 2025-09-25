@@ -46,14 +46,14 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         const year = extractedRows[0]?.year || new Date().getFullYear();
         const month = extractedRows[0]?.month || new Date().getMonth() + 1;
         
-        // Use environment variables for folder structure
+        // Use environment variables for folder structure - SAME AS GENERAL MANAGEMENT
         const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
         const folderPath = `${basePath}/ImportantManagement/${year}/${String(month).padStart(2, '0')}/${location}`;
         
         logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
-        // IMPORTANT: Ensure folder exists BEFORE trying to upload files
+        // IMPORTANT: Ensure folder exists BEFORE trying to upload files - SAME AS GENERAL MANAGEMENT
         logMessage("📁 Creating folder structure before upload...", context);
         await ensureSharePointFolder(folderPath, context);
         logMessage("✅ Folder structure ready", context);
@@ -63,6 +63,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         const textFileName = `important-report-${baseFileName}-${timestamp}.txt`;
         const originalDocFileName = `original-${originalFileName}`;
         
+        // Upload files in sequence - SAME ORDER AS GENERAL MANAGEMENT
         logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
         
