@@ -1,7 +1,7 @@
-const { logMessage, handleError, convertHeicToJpegIfNeeded } = require('../utils');
+const { logMessage, handleError, convertHeicToJpegIfNeeded} = require('../utils');
 const { 
     uploadJsonToSharePoint, 
-    uploadTextToSharePoint,  // Changed from uploadPdfToSharePoint
+    uploadTextToSharePoint,
     uploadOriginalDocumentToSharePoint, 
     ensureSharePointFolder 
 } = require('./sendToSharePoint');
@@ -18,7 +18,7 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
         const jsonReport = generateJsonReport(extractedRows, categories, originalFileName);
         logMessage("✅ JSON report generated", context);
         
-        // Generate text report (changed from PDF)
+        // Generate text report
         const textReport = generateTextReport(extractedRows, categories, originalFileName);
         logMessage("✅ Text report generated", context);
         
@@ -29,7 +29,7 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
         
         return {
             json: jsonReport,
-            text: textReport  // Changed from pdf
+            text: textReport
         };
         
     } catch (error) {
@@ -46,8 +46,11 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         const year = extractedRows[0]?.year || new Date().getFullYear();
         const month = extractedRows[0]?.month || new Date().getMonth() + 1;
         
-        // Create folder structure: Reports/GeneralManagement/Year/Month/Store
-        const folderPath = `Reports/GeneralManagement/${year}/${String(month).padStart(2, '0')}/${location}`;
+        // Use environment variables for folder structure
+        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
+        const folderPath = `${basePath}/GeneralManagement/${year}/${String(month).padStart(2, '0')}/${location}`;
+        
+        logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
         // Ensure folder exists
@@ -56,14 +59,14 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         
         // Generate file names
         const jsonFileName = `general-report-${baseFileName}-${timestamp}.json`;
-        const textFileName = `general-report-${baseFileName}-${timestamp}.txt`;  // Changed from .pdf
+        const textFileName = `general-report-${baseFileName}-${timestamp}.txt`;
         const originalDocFileName = `original-${originalFileName}`;
         
         logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
         
         logMessage(`📤 Uploading text report: ${textFileName}`, context);
-        await uploadTextToSharePoint(textReport, textFileName, folderPath, context);  // Changed function call
+        await uploadTextToSharePoint(textReport, textFileName, folderPath, context);
         
         logMessage(`📤 Uploading original document: ${originalDocFileName}`, context);
         await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
