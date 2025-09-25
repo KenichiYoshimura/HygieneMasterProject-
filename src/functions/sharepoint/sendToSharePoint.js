@@ -142,9 +142,6 @@ async function ensureSharePointFolder(folderPath, context) {
         logMessage(`📁 Ensuring SharePoint folder exists via Graph: ${folderPath}`, context);
 
         const accessToken = await getSharePointAccessToken(context);
-        const siteUrl = new URL(SHAREPOINT_SITE_URL);
-        const hostname = siteUrl.hostname;
-        const sitePath = siteUrl.pathname;
 
         // Step 1: Get siteId
         const siteResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`, {
@@ -155,37 +152,46 @@ async function ensureSharePointFolder(folderPath, context) {
         const siteId = siteResponse.data.id;
         logMessage(`📋 Site ID: ${siteId}`, context);
 
-        // Step 2: Create folder structure recursively
+        // Step 2: Get drive ID
+        const driveResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive`, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`
+            }
+        });
+        const driveId = driveResponse.data.id;
+        logMessage(`📋 Drive ID: ${driveId}`, context);
+
+        // Step 3: Create folder structure using drive items API
         const folderParts = folderPath.split('/').filter(part => part);
-        let currentPath = '';
+        let currentItemId = 'root';
 
         for (const folderName of folderParts) {
-            currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+            logMessage(`📁 Processing folder: ${folderName}`, context);
 
-            // Check if folder exists
-            const checkUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${currentPath}`;
             try {
-                await axios.get(checkUrl, {
+                // First, try to find if folder already exists
+                const childrenUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${currentItemId}/children`;
+                const childrenResponse = await axios.get(childrenUrl, {
                     headers: {
                         Authorization: `Bearer ${accessToken}`
                     }
                 });
-                logMessage(`📁 Folder already exists: ${currentPath}`, context);
-            } catch (checkError) {
-                if (checkError.response && checkError.response.status === 404) {
-                    // Determine parent path
-                    const parentPath = currentPath.includes('/')
-                        ? currentPath.substring(0, currentPath.lastIndexOf('/'))
-                        : '';
 
-                    // Correct folder creation URL format
-                    const createUrl = parentPath
-                        ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${parentPath}:/children`
-                        : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/children`;
+                const existingFolder = childrenResponse.data.value.find(
+                    item => item.name === folderName && item.folder
+                );
 
-                    logMessage(`📁 Creating folder '${folderName}' at '${createUrl}'`, context);
+                if (existingFolder) {
+                    currentItemId = existingFolder.id;
+                    logMessage(`📁 Found existing folder '${folderName}' with ID: ${currentItemId}`, context);
+                } else {
+                    // Create new folder
+                    logMessage(`📁 Creating new folder '${folderName}' in item ID: ${currentItemId}`, context);
+                    
+                    const createUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${currentItemId}/children`;
+                    logMessage(`📁 Create URL: ${createUrl}`, context);
 
-                    await axios.post(createUrl, {
+                    const createResponse = await axios.post(createUrl, {
                         name: folderName,
                         folder: {},
                         "@microsoft.graph.conflictBehavior": "rename"
@@ -196,15 +202,22 @@ async function ensureSharePointFolder(folderPath, context) {
                         }
                     });
 
-                    logMessage(`✅ Created folder: ${currentPath}`, context);
-                } else {
-                    logMessage(`❌ Error checking folder: ${currentPath}`, context);
-                    throw checkError;
+                    currentItemId = createResponse.data.id;
+                    logMessage(`✅ Created folder '${folderName}' with ID: ${currentItemId}`, context);
                 }
+
+            } catch (folderError) {
+                logMessage(`❌ Error processing folder '${folderName}': ${folderError.message}`, context);
+                if (folderError.response) {
+                    logMessage(`❌ Folder error status: ${folderError.response.status}`, context);
+                    logMessage(`❌ Folder error data: ${JSON.stringify(folderError.response.data)}`, context);
+                }
+                throw folderError;
             }
         }
 
-        logMessage(`✅ SharePoint folder structure ensured: ${folderPath}`, context);
+        logMessage(`✅ All folders ensured successfully. Final path: ${folderPath}`, context);
+        return true;
 
     } catch (error) {
         logMessage(`❌ Folder creation via Graph failed: ${error.message}`, context);
