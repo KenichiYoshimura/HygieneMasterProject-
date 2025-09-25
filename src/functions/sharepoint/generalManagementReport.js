@@ -78,38 +78,38 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
     }
 }
 
-async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowDataArray, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-        const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'unknown';
-        const year = extractedRows[0]?.year || new Date().getFullYear();
-        const month = extractedRows[0]?.month || new Date().getMonth() + 1;
         
-        // Use environment variables for folder structure
-        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || '衛生管理日誌';
-        const folderPath = `${basePath}/一般衛生管理の実施記録/${year}/${String(month).padStart(2, '0')}/${location}`;
+        // Use the form data instead of submission metadata
+        const location = rowDataArray[0]?.text_mkv0z6d || rowDataArray[0]?.store || 'unknown';
+        const dateStr = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
+        const [year, month] = dateStr.split('-');
         
-        logMessage(`📁 Using configured base path: ${basePath}`, context);
+        logMessage(`📋 Resolved location from form data: ${location}`, context);
+        logMessage(`📋 Resolved year from form data: ${year}`, context);
+        logMessage(`📋 Resolved month from form data: ${month}`, context);
+        logMessage(`📋 Form date used for folder structure: ${dateStr}`, context);
+        
+        // Use environment variables for folder structure - CORRECTED FOLDER NAME
+        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
+        const folderPath = `${basePath}/衛生管理日誌/${year}/${String(month).padStart(2, '0')}/${location}`;
+        
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
-        // IMPORTANT: Ensure folder exists BEFORE trying to upload files
-        logMessage("📁 Creating folder structure before upload...", context);
+        // Create folder structure
         await ensureSharePointFolder(folderPath, context);
-        logMessage("✅ Folder structure ready", context);
         
         // Generate file names
         const jsonFileName = `general-report-${baseFileName}-${timestamp}.json`;
         const textFileName = `general-report-${baseFileName}-${timestamp}.txt`;
         const originalDocFileName = `original-${originalFileName}`;
         
-        logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
+        // Upload files
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
-        
-        logMessage(`📤 Uploading text report: ${textFileName}`, context);
         await uploadTextToSharePoint(textReport, textFileName, folderPath, context);
-        
-        logMessage(`📤 Uploading original document: ${originalDocFileName}`, context);
         await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
         
         logMessage("✅ All general management reports uploaded to SharePoint successfully", context);

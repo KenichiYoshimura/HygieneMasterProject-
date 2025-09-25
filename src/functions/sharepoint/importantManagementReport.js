@@ -77,18 +77,23 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     }
 }
 
-async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowDataArray, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-        const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'unknown';
         
-        // Get date info
-        const dateStr = extractedRows[0]?.date4 || new Date().toISOString().split('T')[0];
+        // Use the form data (like Important Management does) instead of submission metadata
+        const location = rowDataArray[0]?.text_mkv0z6d || rowDataArray[0]?.store || 'unknown';
+        const dateStr = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
         const [year, month] = dateStr.split('-');
         
-        // Use environment variables for folder structure
-        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || '衛生管理日誌';
+        logMessage(`📋 Resolved location from form data: ${location}`, context);
+        logMessage(`📋 Resolved year from form data: ${year}`, context);
+        logMessage(`📋 Resolved month from form data: ${month}`, context);
+        logMessage(`📋 Form date used for folder structure: ${dateStr}`, context);
+        
+        // Use environment variables for folder structure - CORRECTED FOLDER NAME
+        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
         const folderPath = `${basePath}/重要衛生管理の実施記録/${year}/${String(month).padStart(2, '0')}/${location}`;
         
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
