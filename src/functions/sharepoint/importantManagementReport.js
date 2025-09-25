@@ -1,7 +1,7 @@
 const { logMessage, handleError, convertHeicToJpegIfNeeded} = require('../utils');
 const { 
     uploadJsonToSharePoint, 
-    uploadPdfToSharePoint, 
+    uploadTextToSharePoint,  // Changed from uploadPdfToSharePoint
     uploadOriginalDocumentToSharePoint, 
     ensureSharePointFolder 
 } = require('./sendToSharePoint');
@@ -18,18 +18,18 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
         const jsonReport = generateJsonReport(extractedRows, menuItems, originalFileName);
         logMessage("✅ JSON report generated", context);
         
-        // Generate PDF report
-        const pdfReport = await generatePdfReport(extractedRows, menuItems, originalFileName);
-        logMessage("✅ PDF report generated", context);
+        // Generate text report (changed from PDF)
+        const textReport = generateTextReport(extractedRows, menuItems, originalFileName);
+        logMessage("✅ Text report generated", context);
         
         // Upload to SharePoint
         logMessage("📤 Starting SharePoint upload...", context);
-        await uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, originalFileName, extractedRows, context);
+        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context);
         logMessage("✅ SharePoint upload completed", context);
         
         return {
             json: jsonReport,
-            pdf: pdfReport
+            text: textReport  // Changed from pdf
         };
         
     } catch (error) {
@@ -38,7 +38,7 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     }
 }
 
-async function uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, originalFileName, extractedRows, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
@@ -56,14 +56,14 @@ async function uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, o
         
         // Generate file names
         const jsonFileName = `important-report-${baseFileName}-${timestamp}.json`;
-        const pdfFileName = `important-report-${baseFileName}-${timestamp}.pdf`;
+        const textFileName = `important-report-${baseFileName}-${timestamp}.txt`;  // Changed from .pdf
         const originalDocFileName = `original-${originalFileName}`;
         
         logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
         
-        logMessage(`📤 Uploading PDF report: ${pdfFileName}`, context);
-        await uploadPdfToSharePoint(pdfReport, pdfFileName, folderPath, context);
+        logMessage(`📤 Uploading text report: ${textFileName}`, context);
+        await uploadTextToSharePoint(textReport, textFileName, folderPath, context);  // Changed function call
         
         logMessage(`📤 Uploading original document: ${originalDocFileName}`, context);
         await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
@@ -115,75 +115,100 @@ function generateJsonReport(extractedRows, menuItems, originalFileName) {
     return reportData;
 }
 
-async function generatePdfReport(extractedRows, menuItems, originalFileName) {
-    const htmlContent = generateHtmlForPdf(extractedRows, menuItems, originalFileName);
-    return htmlContent; // Will be converted to PDF in SharePoint upload function
-}
-
-function generateHtmlForPdf(extractedRows, menuItems, originalFileName) {
-    const reportDate = new Date().toLocaleDateString('ja-JP');
+// Changed from generatePdfReport to generateTextReport
+function generateTextReport(extractedRows, menuItems, originalFileName) {
+    const reportDate = new Date().toLocaleDateString('ja-JP', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
     const location = extractedRows[0]?.store || 'Unknown Location';
     const year = extractedRows[0]?.year || new Date().getFullYear();
     const month = extractedRows[0]?.month || new Date().getMonth() + 1;
     
-    return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body { font-family: 'Yu Gothic', sans-serif; font-size: 12px; }
-        .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #d32f2f; padding-bottom: 10px; }
-        .title { font-size: 18px; font-weight: bold; color: #d32f2f; }
-        .important-badge { background-color: #d32f2f; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; }
-        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-        th, td { border: 1px solid #333; padding: 8px; text-align: center; }
-        th { background-color: #ffebee; font-weight: bold; color: #d32f2f; }
-        .status-ok { background-color: #d4edda; }
-        .status-ng { background-color: #f8d7da; }
-        .status-unknown { background-color: #fff3cd; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="title">
-            <span class="important-badge">重要</span>
-            重要管理フォーム レポート
-        </div>
-        <p>店舗: ${location} | ${year}年${month}月 | 作成日: ${reportDate}</p>
-        <div style="font-size: 10px; color: #888;">元ファイル: ${originalFileName}</div>
-    </div>
+    let textReport = `
+========================================
+🚨 重要管理フォーム 週間レポート
+========================================
 
-    <table>
-        <thead>
-            <tr>
-                <th>日付</th>
-                ${menuItems.map((item, index) => `<th>項目${index + 1}<br>${item.length > 10 ? item.substring(0, 10) + '...' : item}</th>`).join('')}
-                <th>承認</th>
-                <th>コメント</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${extractedRows.map(row => `
-            <tr>
-                <td><strong>${row.day}日</strong></td>
-                ${menuItems.map((_, index) => {
-                    const status = row[`menu${index + 1}Status`] || '—';
-                    const cssClass = status === '良' ? 'status-ok' : status === '否' ? 'status-ng' : 'status-unknown';
-                    return `<td class="${cssClass}">${status}</td>`;
-                }).join('')}
-                <td>${row.approverStatus === '選択済み' ? '✓' : '—'}</td>
-                <td style="text-align: left; max-width: 150px;">${row.comment && row.comment !== 'not found' ? row.comment : '—'}</td>
-            </tr>
-            `).join('')}
-        </tbody>
-    </table>
+📋 基本情報:
+  店舗: ${location}
+  対象期間: ${year}年${month}月
+  作成日: ${reportDate}
+  元ファイル: ${originalFileName}
 
-    <div style="margin-top: 20px; text-align: center; color: #666; font-size: 10px;">
-        <p>このレポートは HygienMaster システムにより自動生成されました (${new Date().toISOString()})</p>
-    </div>
-</body>
-</html>`;
+📊 重要管理項目:
+${menuItems.map((item, index) => `  項目${index + 1}: ${item}`).join('\n')}
+
+========================================
+📅 日別管理状況
+========================================
+
+`;
+
+    // Header row
+    textReport += '日付    ';
+    menuItems.forEach((_, index) => {
+        textReport += `項目${index + 1}  `;
+    });
+    textReport += '承認  コメント\n';
+    textReport += ''.padEnd(80, '-') + '\n';
+
+    // Data rows
+    extractedRows.forEach(row => {
+        textReport += `${String(row.day).padEnd(6)}`;
+        
+        menuItems.forEach((_, index) => {
+            const status = row[`menu${index + 1}Status`] || '—';
+            const displayStatus = status === '良' ? '✓' : status === '否' ? '✗' : '?';
+            textReport += `${displayStatus.padEnd(6)}`;
+        });
+        
+        const approver = row.approverStatus === '選択済み' ? '✓' : '—';
+        textReport += `${approver.padEnd(4)}`;
+        
+        const comment = row.comment && row.comment !== 'not found' ? row.comment : '—';
+        textReport += `${comment.substring(0, 30)}\n`;
+    });
+
+    // Summary section
+    const summary = generateSummaryData(extractedRows, menuItems);
+    const analytics = generateAnalyticsData(extractedRows, menuItems);
+    
+    textReport += `
+========================================
+📈 週間サマリー
+========================================
+
+📊 全体統計:
+  • 総日数: ${summary.totalDays}日
+  • 承認済み: ${summary.approvedDays}日 (${summary.approvalRate}%)
+  • コメント有り: ${summary.daysWithComments}日 (${summary.commentRate}%)
+
+🚨 重要度レベル:
+`;
+
+    const criticalItems = analytics.menuPerformance.filter(menu => menu.riskLevel === 'critical');
+    const highItems = analytics.menuPerformance.filter(menu => menu.riskLevel === 'high');
+
+    textReport += `  • 緊急対応必要: ${criticalItems.length}項目\n`;
+    textReport += `  • 要注意: ${highItems.length}項目\n\n`;
+
+    if (criticalItems.length > 0) {
+        textReport += `⚠️ 問題発生項目:\n`;
+        criticalItems.forEach(item => {
+            textReport += `  • ${item.menuName}: ${item.ngCount}件の問題 (成功率: ${item.successRate}%)\n`;
+        });
+    }
+
+    textReport += `
+========================================
+このレポートは HygienMaster システムにより自動生成されました
+生成日時: ${new Date().toISOString()}
+========================================
+`;
+
+    return textReport;
 }
 
 function generateSummaryData(extractedRows, menuItems) {

@@ -1,7 +1,7 @@
-const { logMessage, handleError, convertHeicToJpegIfNeeded} = require('../utils');
+const { logMessage, handleError, convertHeicToJpegIfNeeded } = require('../utils');
 const { 
     uploadJsonToSharePoint, 
-    uploadPdfToSharePoint, 
+    uploadTextToSharePoint,  // Changed from uploadPdfToSharePoint
     uploadOriginalDocumentToSharePoint, 
     ensureSharePointFolder 
 } = require('./sendToSharePoint');
@@ -18,28 +18,27 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
         const jsonReport = generateJsonReport(extractedRows, categories, originalFileName);
         logMessage("✅ JSON report generated", context);
         
-        // Generate PDF report
-        const pdfReport = await generatePdfReport(extractedRows, categories, originalFileName);
-        logMessage("✅ PDF report generated", context);
+        // Generate text report (changed from PDF)
+        const textReport = generateTextReport(extractedRows, categories, originalFileName);
+        logMessage("✅ Text report generated", context);
         
-        // Upload to SharePoint - ADD THIS CALL
+        // Upload to SharePoint
         logMessage("📤 Starting SharePoint upload...", context);
-        await uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, originalFileName, extractedRows, context);
+        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context);
         logMessage("✅ SharePoint upload completed", context);
         
         return {
             json: jsonReport,
-            pdf: pdfReport
+            text: textReport  // Changed from pdf
         };
         
     } catch (error) {
-        handleError(error, 'Report Generation', context);
+        handleError(error, 'General Management Report Generation', context);
         throw error;
     }
 }
 
-// ADD THIS FUNCTION if missing
-async function uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, originalFileName, extractedRows, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
@@ -57,19 +56,19 @@ async function uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, o
         
         // Generate file names
         const jsonFileName = `general-report-${baseFileName}-${timestamp}.json`;
-        const pdfFileName = `general-report-${baseFileName}-${timestamp}.pdf`;
+        const textFileName = `general-report-${baseFileName}-${timestamp}.txt`;  // Changed from .pdf
         const originalDocFileName = `original-${originalFileName}`;
         
         logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
         
-        logMessage(`📤 Uploading PDF report: ${pdfFileName}`, context);
-        await uploadPdfToSharePoint(pdfReport, pdfFileName, folderPath, context);
+        logMessage(`📤 Uploading text report: ${textFileName}`, context);
+        await uploadTextToSharePoint(textReport, textFileName, folderPath, context);  // Changed function call
         
         logMessage(`📤 Uploading original document: ${originalDocFileName}`, context);
         await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
         
-        logMessage("✅ All reports uploaded to SharePoint successfully", context);
+        logMessage("✅ All general management reports uploaded to SharePoint successfully", context);
         
     } catch (error) {
         handleError(error, 'SharePoint Upload', context);
@@ -77,7 +76,6 @@ async function uploadReportsToSharePoint(jsonReport, pdfReport, base64BinFile, o
     }
 }
 
-// ADD THESE FUNCTIONS if missing
 function generateJsonReport(extractedRows, categories, originalFileName) {
     const reportData = {
         metadata: {
@@ -110,62 +108,188 @@ function generateJsonReport(extractedRows, categories, originalFileName) {
             approverStatus: row.approverStatus,
             isApproved: row.approverStatus === "選択済み"
         })),
-        summary: generateSummaryData(extractedRows, categories)
+        summary: generateSummaryData(extractedRows, categories),
+        analytics: generateAnalyticsData(extractedRows, categories)
     };
     
     return reportData;
 }
 
-async function generatePdfReport(extractedRows, categories, originalFileName) {
-    const htmlContent = generateHtmlForPdf(extractedRows, categories, originalFileName);
-    return htmlContent; // Will be converted to PDF in SharePoint upload function
-}
-
-function generateHtmlForPdf(extractedRows, categories, originalFileName) {
-    // Your existing HTML generation code here
-    const reportDate = new Date().toLocaleDateString('ja-JP');
+// Changed from generatePdfReport to generateTextReport
+function generateTextReport(extractedRows, categories, originalFileName) {
+    const reportDate = new Date().toLocaleDateString('ja-JP', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
     const location = extractedRows[0]?.store || 'Unknown Location';
+    const year = extractedRows[0]?.year || new Date().getFullYear();
+    const month = extractedRows[0]?.month || new Date().getMonth() + 1;
     
-    return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body { font-family: 'Yu Gothic', sans-serif; }
-        .header { text-align: center; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #333; padding: 8px; text-align: center; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>一般管理フォーム レポート</h1>
-        <p>店舗: ${location} | 作成日: ${reportDate}</p>
-    </div>
-    <table>
-        <tr>
-            <th>日付</th>
-            ${categories.map((cat, i) => `<th>項目${i+1}</th>`).join('')}
-            <th>コメント</th>
-        </tr>
-        ${extractedRows.map(row => `
-        <tr>
-            <td>${row.day}日</td>
-            ${categories.map((_, i) => `<td>${row[`cat${i+1}Status`] || '—'}</td>`).join('')}
-            <td>${row.comment || '—'}</td>
-        </tr>
-        `).join('')}
-    </table>
-</body>
-</html>`;
+    let textReport = `
+========================================
+📋 一般管理フォーム 週間レポート
+========================================
+
+📋 基本情報:
+  店舗: ${location}
+  対象期間: ${year}年${month}月
+  作成日: ${reportDate}
+  元ファイル: ${originalFileName}
+
+📊 管理項目:
+${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
+
+========================================
+📅 日別管理状況
+========================================
+
+`;
+
+    // Header row
+    textReport += '日付    ';
+    categories.forEach((_, index) => {
+        textReport += `項目${index + 1}  `;
+    });
+    textReport += '承認  コメント\n';
+    textReport += ''.padEnd(80, '-') + '\n';
+
+    // Data rows
+    extractedRows.forEach(row => {
+        textReport += `${String(row.day).padEnd(6)}`;
+        
+        categories.forEach((_, index) => {
+            const status = row[`cat${index + 1}Status`] || '—';
+            const displayStatus = status === '良' ? '✓' : status === '否' ? '✗' : '?';
+            textReport += `${displayStatus.padEnd(6)}`;
+        });
+        
+        const approver = row.approverStatus === '選択済み' ? '✓' : '—';
+        textReport += `${approver.padEnd(4)}`;
+        
+        const comment = row.comment && row.comment !== 'not found' ? row.comment : '—';
+        textReport += `${comment.substring(0, 30)}\n`;
+    });
+
+    // Summary section
+    const summary = generateSummaryData(extractedRows, categories);
+    const analytics = generateAnalyticsData(extractedRows, categories);
+    
+    textReport += `
+========================================
+📈 週間サマリー
+========================================
+
+📊 全体統計:
+  • 総日数: ${summary.totalDays}日
+  • 承認済み: ${summary.approvedDays}日 (${summary.approvalRate}%)
+  • コメント有り: ${summary.daysWithComments}日 (${summary.commentRate}%)
+
+📋 項目別統計:
+`;
+
+    analytics.categoryPerformance.forEach(cat => {
+        textReport += `  • ${cat.categoryName}: 良${cat.okCount}件 / 否${cat.ngCount}件 (成功率: ${cat.successRate}%)\n`;
+    });
+
+    const riskCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'high');
+    
+    if (riskCategories.length > 0) {
+        textReport += `
+⚠️ 注意が必要な項目:
+`;
+        riskCategories.forEach(cat => {
+            textReport += `  • ${cat.categoryName}: ${cat.ngCount}件の問題 (成功率: ${cat.successRate}%)\n`;
+        });
+    } else {
+        textReport += `
+✅ すべての項目が良好な状態です
+`;
+    }
+
+    if (analytics.issuesDays.length > 0) {
+        textReport += `
+📅 問題発生日:
+`;
+        analytics.issuesDays.forEach(day => {
+            textReport += `  • ${day.day}日: ${day.issueCount}件の問題 (${day.issues.join(', ')})\n`;
+        });
+    }
+
+    textReport += `
+========================================
+このレポートは HygienMaster システムにより自動生成されました
+生成日時: ${new Date().toISOString()}
+========================================
+`;
+
+    return textReport;
 }
 
 function generateSummaryData(extractedRows, categories) {
+    const totalDays = extractedRows.length;
+    const approvedDays = extractedRows.filter(row => row.approverStatus === '選択済み').length;
+    const daysWithComments = extractedRows.filter(row => row.comment && row.comment !== 'not found').length;
+    
     return {
-        totalDays: extractedRows.length,
-        approvedDays: extractedRows.filter(row => row.approverStatus === '選択済み').length
+        totalDays,
+        approvedDays,
+        approvalRate: totalDays > 0 ? (approvedDays / totalDays * 100).toFixed(1) : 0,
+        daysWithComments,
+        commentRate: totalDays > 0 ? (daysWithComments / totalDays * 100).toFixed(1) : 0
     };
+}
+
+function generateAnalyticsData(extractedRows, categories) {
+    const analytics = {
+        categoryPerformance: [],
+        trendData: [],
+        issuesDays: []
+    };
+    
+    // Category performance analysis
+    categories.forEach((category, index) => {
+        const statusKey = `cat${index + 1}Status`;
+        const okCount = extractedRows.filter(row => row[statusKey] === '良').length;
+        const ngCount = extractedRows.filter(row => row[statusKey] === '否').length;
+        const unknownCount = extractedRows.filter(row => !row[statusKey] || row[statusKey] === 'not found').length;
+        
+        analytics.categoryPerformance.push({
+            categoryId: index + 1,
+            categoryName: category,
+            okCount,
+            ngCount,
+            unknownCount,
+            totalCount: extractedRows.length,
+            successRate: extractedRows.length > 0 ? (okCount / extractedRows.length * 100).toFixed(1) : 0,
+            riskLevel: ngCount > extractedRows.length * 0.3 ? "high" : ngCount > 0 ? "medium" : "low"
+        });
+    });
+    
+    // Days with issues
+    extractedRows.forEach(row => {
+        let issueCount = 0;
+        let issues = [];
+        
+        categories.forEach((_, index) => {
+            if (row[`cat${index + 1}Status`] === '否') {
+                issueCount++;
+                issues.push(`項目${index + 1}`);
+            }
+        });
+        
+        if (issueCount > 0) {
+            analytics.issuesDays.push({
+                day: row.day,
+                issueCount,
+                issues,
+                hasComment: !!(row.comment && row.comment !== 'not found'),
+                isApproved: row.approverStatus === '選択済み'
+            });
+        }
+    });
+    
+    return analytics;
 }
 
 function getStatusCode(status) {

@@ -188,6 +188,46 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
     }
 }
 
+// Upload text report to SharePoint
+async function uploadTextToSharePoint(textContent, fileName, folderPath, context) {
+    try {
+        logMessage(`📤 Starting text report upload to SharePoint: ${fileName}`, context);
+        
+        logMessage(`🔐 Getting access token for text upload...`, context);
+        const accessToken = await getSharePointAccessToken(context);
+        logMessage(`✅ Access token received for text upload`, context);
+        
+        const buffer = Buffer.from(textContent, 'utf8');
+        logMessage(`📄 Text buffer size: ${buffer.length} bytes`, context);
+        
+        const uploadUrl = `${SHAREPOINT_SITE_URL}/_api/web/GetFolderByServerRelativeUrl('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')/Files/Add(url='${fileName}',overwrite=true)`;
+        logMessage(`🔗 Text Upload URL: ${uploadUrl}`, context);
+        
+        logMessage(`📤 Sending text to SharePoint...`, context);
+        const response = await axios.post(uploadUrl, buffer, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json;odata=verbose',
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Content-Length': buffer.length
+            },
+            timeout: 30000
+        });
+
+        logMessage(`✅ Text report uploaded to SharePoint successfully: ${fileName}`, context);
+        return response.data;
+    } catch (error) {
+        logMessage(`❌ Text upload failed for: ${fileName}`, context);
+        logMessage(`❌ Error message: ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
+        handleError(error, 'SharePoint Text Upload', context);
+        throw error;
+    }
+}
+
 // Create SharePoint folder if it doesn't exist
 async function ensureSharePointFolder(folderPath, context) {
     try {
@@ -227,7 +267,7 @@ async function ensureSharePointFolder(folderPath, context) {
 module.exports = {
     getSharePointAccessToken,
     uploadJsonToSharePoint,
-    uploadPdfToSharePoint,
+    uploadTextToSharePoint,
     uploadOriginalDocumentToSharePoint,
     ensureSharePointFolder
 };
