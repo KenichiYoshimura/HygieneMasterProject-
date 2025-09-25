@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function prepareGeneralManagementReport(extractedRows, categories, context, base64BinFile, originalFileName) {
-    logMessage("🚀 prepareGeneralManagementReport() called", context);
+    logMessage("🚀 prepareGeneralManagementReport() called!!", context);
     
     try {
         // Generate structured JSON data
