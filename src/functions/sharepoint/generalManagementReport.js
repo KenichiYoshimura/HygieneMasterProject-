@@ -82,22 +82,13 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
 }
 
 function generateJsonReport(extractedRows, categories, originalFileName) {
-    /*
-    Monday General Management Form Column Mapping:
-    ID: name, Title: Name, Type: name
-    ID: date4, Title: 日付, Type: date
-    ID: text_mkv0z6d, Title: 店舗, Type: text
-    ID: color_mkv02tqg, Title: Category1, Type: status
-    ID: color_mkv0yb6g, Title: Category2, Type: status
-    ID: color_mkv06e9z, Title: Category3, Type: status
-    ID: color_mkv0x9mr, Title: Category4, Type: status
-    ID: color_mkv0df43, Title: Category5, Type: status
-    ID: color_mkv5fa8m, Title: Category6, Type: status
-    ID: color_mkv59ent, Title: Category7, Type: status
-    ID: text_mkv0etfg, Title: 特記事項, Type: text
-    ID: color_mkv0xnn4, Title: 確認者, Type: status
-    ID: file_mkv1kpsc, Title: 紙の帳票, Type: file
-    */
+    // Parse original filename for submission info
+    const fileNameParts = parseFileName(originalFileName);
+    
+    // Get store and date info from first row
+    const storeName = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || "unknown";
+    const fullDate = extractedRows[0]?.date4 || extractedRows[0]?.year + '-' + String(extractedRows[0]?.month || new Date().getMonth() + 1).padStart(2, '0') + '-01';
+    const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
     const categoryColumnMapping = {
         0: 'color_mkv02tqg', // Category1
@@ -125,170 +116,162 @@ function generateJsonReport(extractedRows, categories, originalFileName) {
                 categories: categoryColumnMapping
             }
         },
-        formInfo: {
-            location: extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || "unknown",
-            year: parseInt(extractedRows[0]?.year) || new Date().getFullYear(),
-            month: parseInt(extractedRows[0]?.month) || new Date().getMonth() + 1,
-            totalDays: extractedRows.length
+        
+        // Report header information (same as text report)
+        reportHeader: {
+            title: "一般管理の実施記録",
+            submissionDate: fileNameParts.submissionDate,
+            submitter: fileNameParts.senderEmail,
+            originalFileName: fileNameParts.originalFileName,
+            storeName: storeName,
+            yearMonth: yearMonth
         },
+        
+        // Categories with their Monday column mappings
         categories: categories.map((category, index) => ({
             id: index + 1,
             name: category,
             mondayColumnId: categoryColumnMapping[index] || `category${index + 1}`,
             key: `category${index + 1}`
         })),
+        
+        // Table headers (matching text report structure)
+        tableHeaders: [
+            "日付",
+            categories[0] || "Category1",
+            categories[1] || "Category2", 
+            categories[2] || "Category3",
+            categories[3] || "Category4",
+            categories[4] || "Category5",
+            categories[5] || "Category6",
+            categories[6] || "Category7",
+            "特記事項",
+            "確認者"
+        ],
+        
+        // Daily data rows (matching text report structure)
         dailyData: extractedRows.map(row => {
-            const dailyEntry = {
-                // Basic info using Monday column structure
-                name: row.name || `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
-                day: parseInt(row.day),
-                date: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
-                date4: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`, // Monday date format
-                text_mkv0z6d: row.text_mkv0z6d || row.store || "unknown", // 店舗
-                text_mkv0etfg: row.text_mkv0etfg || row.comment || null, // 特記事項
-                color_mkv0xnn4: row.color_mkv0xnn4 || row.approverStatus || null, // 確認者
+            // Extract day from date4 (remove year-month part)
+            const dayOnly = row.date4 ? row.date4.split('-')[2] : (row.day ? String(row.day).padStart(2, '0') : '--');
+            
+            return {
+                // Table row data (same order as headers)
+                tableRow: [
+                    dayOnly,
+                    row.color_mkv02tqg || '--',
+                    row.color_mkv0yb6g || '--', 
+                    row.color_mkv06e9z || '--',
+                    row.color_mkv0x9mr || '--',
+                    row.color_mkv0df43 || '--',
+                    row.color_mkv5fa8m || '--',
+                    row.color_mkv59ent || '--',
+                    row.text_mkv0etfg || '--',
+                    row.color_mkv0xnn4 || '--'
+                ],
                 
-                // Category statuses using Monday column IDs
-                categoryStatuses: categories.map((_, index) => {
-                    const mondayColumnId = categoryColumnMapping[index];
-                    const status = row[mondayColumnId] || row[`category${index + 1}Status`] || "unknown";
-                    
-                    return {
-                        categoryId: index + 1,
-                        categoryName: categories[index],
-                        mondayColumnId: mondayColumnId,
-                        status: status,
-                        statusCode: getStatusCode(status),
-                        rawValue: row[mondayColumnId] || row[`category${index + 1}Status`]
-                    };
-                }),
+                // Individual field access
+                day: dayOnly,
+                categoryStatuses: {
+                    category1: row.color_mkv02tqg || '--',
+                    category2: row.color_mkv0yb6g || '--',
+                    category3: row.color_mkv06e9z || '--',
+                    category4: row.color_mkv0x9mr || '--',
+                    category5: row.color_mkv0df43 || '--',
+                    category6: row.color_mkv5fa8m || '--',
+                    category7: row.color_mkv59ent || '--'
+                },
+                comments: row.text_mkv0etfg || '--',
+                approver: row.color_mkv0xnn4 || '--',
                 
-                // Include raw Monday column data for reference
+                // Raw Monday column data for reference
                 mondayColumnData: {
+                    name: row.name,
+                    date4: row.date4,
+                    text_mkv0z6d: row.text_mkv0z6d,
                     color_mkv02tqg: row.color_mkv02tqg,
                     color_mkv0yb6g: row.color_mkv0yb6g,
                     color_mkv06e9z: row.color_mkv06e9z,
                     color_mkv0x9mr: row.color_mkv0x9mr,
                     color_mkv0df43: row.color_mkv0df43,
                     color_mkv5fa8m: row.color_mkv5fa8m,
-                    color_mkv59ent: row.color_mkv59ent
+                    color_mkv59ent: row.color_mkv59ent,
+                    text_mkv0etfg: row.text_mkv0etfg,
+                    color_mkv0xnn4: row.color_mkv0xnn4
                 },
                 
-                // Legacy format for compatibility
-                comment: row.text_mkv0etfg || row.comment || null,
-                approverStatus: row.color_mkv0xnn4 || row.approverStatus || null,
-                isApproved: (row.color_mkv0xnn4 || row.approverStatus) === "選択済み"
+                // Analysis fields
+                statusCodes: {
+                    category1: getStatusCode(row.color_mkv02tqg),
+                    category2: getStatusCode(row.color_mkv0yb6g),
+                    category3: getStatusCode(row.color_mkv06e9z),
+                    category4: getStatusCode(row.color_mkv0x9mr),
+                    category5: getStatusCode(row.color_mkv0df43),
+                    category6: getStatusCode(row.color_mkv5fa8m),
+                    category7: getStatusCode(row.color_mkv59ent)
+                }
             };
-            
-            return dailyEntry;
         }),
+        
+        // Summary and analytics
         summary: generateSummaryData(extractedRows, categories),
-        analytics: generateAnalyticsData(extractedRows, categories)
+        analytics: generateAnalyticsData(extractedRows, categories),
+        
+        // Footer information
+        footer: {
+            generatedBy: "HygienMaster システム",
+            generatedAt: new Date().toISOString(),
+            note: "このレポートは HygienMaster システムにより自動生成されました"
+        }
     };
     
     return reportData;
 }
 
-function generateTextReport(extractedRows, categories, originalFileName) {
-    const reportDate = new Date().toLocaleDateString('ja-JP', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-    const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'Unknown Location';
-    const year = extractedRows[0]?.year || new Date().getFullYear();
-    const month = extractedRows[0]?.month || new Date().getMonth() + 1;
+function generateTextReport(rowData, categories, originalFileName) {
+    // 1. Parse original filename for submission info
+    const fileNameParts = parseFileName(originalFileName);
+    
+    // 2. Get store and date info from first row
+    const storeName = rowData[0]?.text_mkv0z6d || 'Unknown Store';
+    const fullDate = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+    const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
     let textReport = `
-========================================
-📋 一般衛生管理フォーム 週間レポート
-========================================
+一般管理の実施記録
+提出日：${fileNameParts.submissionDate}
+提出者：${fileNameParts.senderEmail}  
+ファイル名：${fileNameParts.originalFileName}
 
-📋 基本情報:
-  店舗: ${location}
-  対象期間: ${year}年${month}月
-  作成日: ${reportDate}
-  元ファイル: ${originalFileName}
-
-📊 管理カテゴリ:
-${categories.map((category, index) => `  Category${index + 1}: ${category}`).join('\n')}
-
-========================================
-📅 日別管理状況
-========================================
+店舗名：${storeName}
+年月：${yearMonth}
 
 `;
 
-    // Header row
-    textReport += '日付    ';
-    categories.forEach((_, index) => {
-        textReport += `Cat${index + 1}  `;
+    // 3. Create table header
+    const headerRow = `日付 | ${categories[0]} | ${categories[1]} | ${categories[2]} | ${categories[3]} | ${categories[4]} | ${categories[5]} | ${categories[6]} | 特記事項 | 確認者`;
+    textReport += headerRow + '\n';
+    textReport += ''.padEnd(headerRow.length, '-') + '\n';
+
+    // 4. Add data rows
+    rowData.forEach(row => {
+        // Extract day from date4 (remove year-month part)
+        const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
+        
+        const dataRow = [
+            dayOnly.padEnd(4),
+            (row.color_mkv02tqg || '--').padEnd(categories[0].length + 1),
+            (row.color_mkv0yb6g || '--').padEnd(categories[1].length + 1), 
+            (row.color_mkv06e9z || '--').padEnd(categories[2].length + 1),
+            (row.color_mkv0x9mr || '--').padEnd(categories[3].length + 1),
+            (row.color_mkv0df43 || '--').padEnd(categories[4].length + 1),
+            (row.color_mkv5fa8m || '--').padEnd(categories[5].length + 1),
+            (row.color_mkv59ent || '--').padEnd(categories[6].length + 1),
+            (row.text_mkv0etfg || '--').padEnd(8),
+            (row.color_mkv0xnn4 || '--')
+        ].join('| ');
+        
+        textReport += dataRow + '\n';
     });
-    textReport += '承認  コメント\n';
-    textReport += ''.padEnd(80, '-') + '\n';
-
-    // Data rows using Monday column structure
-    extractedRows.forEach(row => {
-        textReport += `${String(row.day).padEnd(6)}`;
-        
-        // Category statuses using Monday column mapping
-        const categoryColumnMapping = {
-            0: 'color_mkv02tqg', // Category1
-            1: 'color_mkv0yb6g', // Category2
-            2: 'color_mkv06e9z', // Category3
-            3: 'color_mkv0x9mr', // Category4
-            4: 'color_mkv0df43', // Category5
-            5: 'color_mkv5fa8m', // Category6
-            6: 'color_mkv59ent'  // Category7
-        };
-        
-        categories.forEach((_, index) => {
-            const mondayColumnId = categoryColumnMapping[index];
-            const status = row[mondayColumnId] || row[`category${index + 1}Status`] || '—';
-            const displayStatus = status === '良' ? '✓' : status === '否' ? '✗' : '?';
-            textReport += `${displayStatus.padEnd(6)}`;
-        });
-        
-        const approver = (row.color_mkv0xnn4 || row.approverStatus) === '選択済み' ? '✓' : '—';
-        textReport += `${approver.padEnd(4)}`;
-        
-        const comment = row.text_mkv0etfg || row.comment || '—';
-        if (comment && comment !== 'not found') {
-            textReport += `${comment.substring(0, 30)}\n`;
-        } else {
-            textReport += '—\n';
-        }
-    });
-
-    // Summary section
-    const summary = generateSummaryData(extractedRows, categories);
-    const analytics = generateAnalyticsData(extractedRows, categories);
-    
-    textReport += `
-========================================
-📈 週間サマリー
-========================================
-
-📊 全体統計:
-  • 総日数: ${summary.totalDays}日
-  • 承認済み: ${summary.approvedDays}日 (${summary.approvalRate}%)
-  • コメント有り: ${summary.daysWithComments}日 (${summary.commentRate}%)
-
-🚨 重要度レベル:
-`;
-
-    const criticalCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'critical');
-    const highCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'high');
-
-    textReport += `  • 緊急対応必要: ${criticalCategories.length}カテゴリ\n`;
-    textReport += `  • 要注意: ${highCategories.length}カテゴリ\n\n`;
-
-    if (criticalCategories.length > 0) {
-        textReport += `⚠️ 問題発生カテゴリ:\n`;
-        criticalCategories.forEach(cat => {
-            textReport += `  • ${cat.categoryName}: ${cat.ngCount}件の問題 (成功率: ${cat.successRate}%)\n`;
-        });
-    }
 
     textReport += `
 ========================================
@@ -298,6 +281,55 @@ ${categories.map((category, index) => `  Category${index + 1}: ${category}`).joi
 `;
 
     return textReport;
+}
+
+function parseFileName(fileName) {
+    // Parse format: "submission time(sender email)original-file-name"
+    // Example: "20250925T103045(user@example.com)hygiene-form.pdf"
+    
+    try {
+        // Extract submission time (before first parenthesis)
+        const timeMatch = fileName.match(/^([^(]+)/);
+        let submissionTime = timeMatch ? timeMatch[1] : '';
+        
+        // Extract sender email (between parentheses) 
+        const emailMatch = fileName.match(/\(([^)]+)\)/);
+        const senderEmail = emailMatch ? emailMatch[1] : '';
+        
+        // Extract original file name (after last parenthesis)
+        const fileNameMatch = fileName.match(/\)[^)]*(.+)$/);
+        let originalFileName = fileNameMatch ? fileNameMatch[1] : fileName;
+        
+        // Format submission time if it looks like ISO format
+        if (submissionTime.includes('T')) {
+            try {
+                const date = new Date(submissionTime);
+                submissionTime = date.toLocaleDateString('ja-JP', {
+                    year: 'numeric',
+                    month: '2-digit', 
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                // Keep original if parsing fails
+            }
+        }
+        
+        return {
+            submissionDate: submissionTime,
+            senderEmail: senderEmail,
+            originalFileName: originalFileName
+        };
+        
+    } catch (error) {
+        // Fallback if parsing fails
+        return {
+            submissionDate: 'Unknown',
+            senderEmail: 'Unknown', 
+            originalFileName: fileName
+        };
+    }
 }
 
 function generateSummaryData(extractedRows, categories) {
