@@ -124,6 +124,21 @@ function generateJsonReport(rowDataArray, menuItems, originalFileName, context) 
     const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
     const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
+    // Handle menu items - use defaults if all are "not found"
+    let finalMenuItems = menuItems;
+    const hasValidMenuItems = menuItems && menuItems.some(item => item && item !== 'not found');
+    
+    if (!hasValidMenuItems) {
+        logMessage("⚠️ No valid menu items found for JSON, using defaults", context);
+        finalMenuItems = [
+            '重要管理項目1',
+            '重要管理項目2',
+            '重要管理項目3',
+            '重要管理項目4',
+            '重要管理項目5'
+        ];
+    }
+    
     const reportData = {
         // Report header (matching TXT exactly)
         title: "重要管理の実施記録",
@@ -134,7 +149,7 @@ function generateJsonReport(rowDataArray, menuItems, originalFileName, context) 
         yearMonth: yearMonth,
         
         // Menu item definitions (matching TXT exactly)
-        menuItems: menuItems.map((menuItem, index) => ({
+        menuItems: finalMenuItems.map((menuItem, index) => ({
             id: `Menu ${index + 1}`,
             name: menuItem
         })),
@@ -198,7 +213,6 @@ function generateTextReport(rowDataArray, menuItems, originalFileName, context) 
             yearMonth = `${firstRow.year}-${String(firstRow.month).padStart(2, '0')}`;
         }
         
-        // Now we can use logMessage with context
         logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`, context);
     }
     
@@ -214,19 +228,37 @@ function generateTextReport(rowDataArray, menuItems, originalFileName, context) 
 重要管理項目：
 `;
 
-    // Add menu item descriptions
+    // Add menu item descriptions - handle "not found" values
     if (menuItems && menuItems.length > 0) {
+        let hasValidMenuItems = false;
         menuItems.forEach((menuItem, index) => {
             if (menuItem && menuItem !== 'not found') {
                 textReport += `Menu ${index + 1}: ${menuItem}\n`;
+                hasValidMenuItems = true;
             }
         });
+        
+        // If no valid menu items found, use default descriptions
+        if (!hasValidMenuItems) {
+            logMessage("⚠️ No valid menu items found, using defaults", context);
+            const defaultMenuItems = [
+                '重要管理項目1',
+                '重要管理項目2', 
+                '重要管理項目3',
+                '重要管理項目4',
+                '重要管理項目5'
+            ];
+            defaultMenuItems.forEach((menuItem, index) => {
+                textReport += `Menu ${index + 1}: ${menuItem}\n`;
+            });
+        }
     } else {
         // Fallback menu item descriptions
+        logMessage("⚠️ No menu items provided, using defaults", context);
         const defaultMenuItems = [
             '重要管理項目1',
             '重要管理項目2',
-            '重要管理項目3',
+            '重要管理項目3', 
             '重要管理項目4',
             '重要管理項目5'
         ];

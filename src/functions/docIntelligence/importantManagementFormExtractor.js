@@ -62,11 +62,11 @@ async function extractImportantManagementData(context, base64BinFile, fileExtens
 
       // Extract menu items
       const menuItems = [];
-      menuItems[0] = fields.Menu1?.valueString || "not found";
-      menuItems[1] = fields.Menu2?.valueString || "not found";
-      menuItems[2] = fields.Menu3?.valueString || "not found";
-      menuItems[3] = fields.Menu4?.valueString || "not found";
-      menuItems[4] = fields.Menu5?.valueString || "not found";
+      menuItems[0] = fields.menu1?.valueString || "not found";
+      menuItems[1] = fields.menu2?.valueString || "not found";
+      menuItems[2] = fields.menu3?.valueString || "not found";
+      menuItems[3] = fields.menu4?.valueString || "not found";
+      menuItems[4] = fields.menu5?.valueString || "not found";
       // Add more menu items as needed
 
       logMessage('Menu Items:', context);
