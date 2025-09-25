@@ -14,17 +14,41 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     logMessage("🚀 prepareImportantManagementReport() called", context);
     
     try {
+        // DEBUG: Print extractedRows and menuItems to understand the data structure
+        logMessage("🔍 DEBUG: Analyzing extractedRows structure...", context);
+        logMessage(`📊 extractedRows length: ${extractedRows.length}`, context);
+        
+        if (extractedRows.length > 0) {
+            logMessage(`📋 First extractedRow sample:`, context);
+            logMessage(`${JSON.stringify(extractedRows[0], null, 2)}`, context);
+            
+            // Access the nested .row property
+            logMessage(`📋 First row data:`, context);
+            logMessage(`${JSON.stringify(extractedRows[0].row, null, 2)}`, context);
+            
+            logMessage(`📋 All row keys from first row:`, context);
+            logMessage(`${Object.keys(extractedRows[0].row).join(', ')}`, context);
+        }
+        
+        logMessage("🔍 DEBUG: Analyzing menuItems structure...", context);
+        logMessage(`📊 menuItems length: ${menuItems.length}`, context);
+        logMessage(`📋 menuItems content:`, context);
+        logMessage(`${JSON.stringify(menuItems, null, 2)}`, context);
+        
+        // Extract just the row data from extractedRows
+        const rowData = extractedRows.map(item => item.row);
+        
         // Generate structured JSON data
-        const jsonReport = generateJsonReport(extractedRows, menuItems, originalFileName);
+        const jsonReport = generateJsonReport(rowData, menuItems, originalFileName);
         logMessage("✅ JSON report generated", context);
         
         // Generate text report
-        const textReport = generateTextReport(extractedRows, menuItems, originalFileName);
+        const textReport = generateTextReport(rowData, menuItems, originalFileName);
         logMessage("✅ Text report generated", context);
         
         // Upload to SharePoint
         logMessage("📤 Starting SharePoint upload...", context);
-        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context);
+        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowData, context);
         logMessage("✅ SharePoint upload completed", context);
         
         return {
@@ -38,39 +62,37 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     }
 }
 
-async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowData, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-        const location = extractedRows[0]?.store || 'unknown';
-        const year = extractedRows[0]?.year || new Date().getFullYear();
-        const month = extractedRows[0]?.month || new Date().getMonth() + 1;
         
-        // Use environment variables for folder structure - SAME AS GENERAL MANAGEMENT
+        // Use the Monday.com column data directly
+        const location = rowData[0]?.text_mkv0z6d || 'unknown';
+        const dateStr = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+        const [year, month] = dateStr.split('-');
+        
+        logMessage(`📋 Resolved location: ${location}`, context);
+        logMessage(`📋 Resolved year: ${year}`, context);
+        logMessage(`📋 Resolved month: ${month}`, context);
+        
+        // Use environment variables for folder structure
         const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
         const folderPath = `${basePath}/ImportantManagement/${year}/${String(month).padStart(2, '0')}/${location}`;
         
-        logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
-        // IMPORTANT: Ensure folder exists BEFORE trying to upload files - SAME AS GENERAL MANAGEMENT
-        logMessage("📁 Creating folder structure before upload...", context);
+        // Create folder structure
         await ensureSharePointFolder(folderPath, context);
-        logMessage("✅ Folder structure ready", context);
         
         // Generate file names
         const jsonFileName = `important-report-${baseFileName}-${timestamp}.json`;
         const textFileName = `important-report-${baseFileName}-${timestamp}.txt`;
         const originalDocFileName = `original-${originalFileName}`;
         
-        // Upload files in sequence - SAME ORDER AS GENERAL MANAGEMENT
-        logMessage(`📤 Uploading JSON report: ${jsonFileName}`, context);
+        // Upload files
         await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
-        
-        logMessage(`📤 Uploading text report: ${textFileName}`, context);
         await uploadTextToSharePoint(textReport, textFileName, folderPath, context);
-        
-        logMessage(`📤 Uploading original document: ${originalDocFileName}`, context);
         await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
         
         logMessage("✅ All important management reports uploaded to SharePoint successfully", context);
@@ -82,129 +104,188 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
     }
 }
 
-function generateJsonReport(extractedRows, menuItems, originalFileName) {
+function generateJsonReport(rowData, menuItems, originalFileName) {
+    // Parse original filename for submission info
+    const fileNameParts = parseFileName(originalFileName);
+    
+    // Get store and date info from first row
+    const storeName = rowData[0]?.text_mkv0z6d || "unknown";
+    const fullDate = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+    const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
+    
+    const menuColumnMapping = {
+        0: 'color_mkv02tqg', // Menu1
+        1: 'color_mkv0yb6g', // Menu2
+        2: 'color_mkv06e9z', // Menu3
+        3: 'color_mkv0x9mr', // Menu4
+        4: 'color_mkv0df43'  // Menu5
+    };
+
     const reportData = {
         metadata: {
             reportType: "important_management_form",
             generatedAt: new Date().toISOString(),
             originalFileName: originalFileName,
-            version: "1.0"
+            version: "1.0",
+            mondayColumnMapping: {
+                name: "name",
+                date: "date4", 
+                location: "text_mkv0z6d",
+                comments: "text_mkv0etfg",
+                approver: "color_mkv0xnn4",
+                dailyCheck: "color_mkv0ej57",
+                menuItems: menuColumnMapping
+            }
         },
-        formInfo: {
-            location: extractedRows[0]?.store || "unknown",
-            year: parseInt(extractedRows[0]?.year) || new Date().getFullYear(),
-            month: parseInt(extractedRows[0]?.month) || new Date().getMonth() + 1,
-            totalDays: extractedRows.length
+        
+        // Report header information
+        reportHeader: {
+            title: "重要管理の実施記録",
+            submissionDate: fileNameParts.submissionDate,
+            submitter: fileNameParts.senderEmail,
+            originalFileName: fileNameParts.originalFileName,
+            storeName: storeName,
+            yearMonth: yearMonth
         },
+        
+        // Menu items with their Monday column mappings
         menuItems: menuItems.map((item, index) => ({
             id: index + 1,
             name: item,
+            mondayColumnId: menuColumnMapping[index] || `menu${index + 1}`,
             key: `menu${index + 1}`
         })),
-        dailyData: extractedRows.map(row => ({
-            day: parseInt(row.day),
-            date: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
-            menuStatuses: menuItems.map((_, index) => ({
-                menuId: index + 1,
-                menuName: menuItems[index],
-                status: row[`menu${index + 1}Status`] || "unknown",
-                statusCode: getStatusCode(row[`menu${index + 1}Status`])
-            })),
-            comment: row.comment && row.comment !== "not found" ? row.comment : null,
-            approverStatus: row.approverStatus,
-            isApproved: row.approverStatus === "選択済み"
-        })),
-        summary: generateSummaryData(extractedRows, menuItems),
-        analytics: generateAnalyticsData(extractedRows, menuItems)
+        
+        // Table headers (matching text report structure)
+        tableHeaders: [
+            "日付",
+            menuItems[0] || "Menu1",
+            menuItems[1] || "Menu2", 
+            menuItems[2] || "Menu3",
+            menuItems[3] || "Menu4",
+            menuItems[4] || "Menu5",
+            "日常点検",
+            "特記事項",
+            "確認者"
+        ],
+        
+        // Daily data rows
+        dailyData: rowData.map(row => {
+            const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
+            
+            return {
+                // Table row data (same order as headers)
+                tableRow: [
+                    dayOnly,
+                    row.color_mkv02tqg || '--',
+                    row.color_mkv0yb6g || '--', 
+                    row.color_mkv06e9z || '--',
+                    row.color_mkv0x9mr || '--',
+                    row.color_mkv0df43 || '--',
+                    row.color_mkv0ej57 || '--',
+                    row.text_mkv0etfg || '--',
+                    row.color_mkv0xnn4 || '--'
+                ],
+                
+                // Individual field access
+                day: dayOnly,
+                menuStatuses: {
+                    menu1: row.color_mkv02tqg || '--',
+                    menu2: row.color_mkv0yb6g || '--',
+                    menu3: row.color_mkv06e9z || '--',
+                    menu4: row.color_mkv0x9mr || '--',
+                    menu5: row.color_mkv0df43 || '--'
+                },
+                dailyCheck: row.color_mkv0ej57 || '--',
+                comments: row.text_mkv0etfg || '--',
+                approver: row.color_mkv0xnn4 || '--',
+                
+                // Raw Monday column data
+                mondayColumnData: {
+                    name: row.name,
+                    date4: row.date4,
+                    text_mkv0z6d: row.text_mkv0z6d,
+                    color_mkv02tqg: row.color_mkv02tqg,
+                    color_mkv0yb6g: row.color_mkv0yb6g,
+                    color_mkv06e9z: row.color_mkv06e9z,
+                    color_mkv0x9mr: row.color_mkv0x9mr,
+                    color_mkv0df43: row.color_mkv0df43,
+                    color_mkv0ej57: row.color_mkv0ej57,
+                    text_mkv0etfg: row.text_mkv0etfg,
+                    color_mkv0xnn4: row.color_mkv0xnn4
+                },
+                
+                // Status codes for analysis
+                statusCodes: {
+                    menu1: getStatusCode(row.color_mkv02tqg),
+                    menu2: getStatusCode(row.color_mkv0yb6g),
+                    menu3: getStatusCode(row.color_mkv06e9z),
+                    menu4: getStatusCode(row.color_mkv0x9mr),
+                    menu5: getStatusCode(row.color_mkv0df43),
+                    dailyCheck: getStatusCode(row.color_mkv0ej57),
+                    approver: getStatusCode(row.color_mkv0xnn4)
+                }
+            };
+        }),
+        
+        // Summary and analytics
+        summary: generateSummaryData(rowData, menuItems),
+        analytics: generateAnalyticsData(rowData, menuItems),
+        
+        // Footer information
+        footer: {
+            generatedBy: "HygienMaster システム",
+            generatedAt: new Date().toISOString(),
+            note: "このレポートは HygienMaster システムにより自動生成されました"
+        }
     };
     
     return reportData;
 }
 
-function generateTextReport(extractedRows, menuItems, originalFileName) {
-    const reportDate = new Date().toLocaleDateString('ja-JP', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-    const location = extractedRows[0]?.store || 'Unknown Location';
-    const year = extractedRows[0]?.year || new Date().getFullYear();
-    const month = extractedRows[0]?.month || new Date().getMonth() + 1;
+function generateTextReport(rowData, menuItems, originalFileName) {
+    // Parse original filename for submission info
+    const fileNameParts = parseFileName(originalFileName);
+    
+    // Get store and date info from first row
+    const storeName = rowData[0]?.text_mkv0z6d || 'Unknown Store';
+    const fullDate = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+    const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
     let textReport = `
-========================================
-🚨 重要管理フォーム 週間レポート
-========================================
+重要管理の実施記録
+提出日：${fileNameParts.submissionDate}
+提出者：${fileNameParts.senderEmail}  
+ファイル名：${fileNameParts.originalFileName}
 
-📋 基本情報:
-  店舗: ${location}
-  対象期間: ${year}年${month}月
-  作成日: ${reportDate}
-  元ファイル: ${originalFileName}
-
-📊 重要管理項目:
-${menuItems.map((item, index) => `  項目${index + 1}: ${item}`).join('\n')}
-
-========================================
-📅 日別管理状況
-========================================
+店舗名：${storeName}
+年月：${yearMonth}
 
 `;
 
-    // Header row
-    textReport += '日付    ';
-    menuItems.forEach((_, index) => {
-        textReport += `項目${index + 1}  `;
+    // Create table header
+    const headerRow = `日付 | ${menuItems[0]} | ${menuItems[1]} | ${menuItems[2]} | ${menuItems[3]} | ${menuItems[4]} | 日常点検 | 特記事項 | 確認者`;
+    textReport += headerRow + '\n';
+    textReport += ''.padEnd(headerRow.length, '-') + '\n';
+
+    // Add data rows
+    rowData.forEach(row => {
+        const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
+        
+        const dataRow = [
+            dayOnly.padEnd(4),
+            (row.color_mkv02tqg || '--').padEnd(menuItems[0].length + 1),
+            (row.color_mkv0yb6g || '--').padEnd(menuItems[1].length + 1), 
+            (row.color_mkv06e9z || '--').padEnd(menuItems[2].length + 1),
+            (row.color_mkv0x9mr || '--').padEnd(menuItems[3].length + 1),
+            (row.color_mkv0df43 || '--').padEnd(menuItems[4].length + 1),
+            (row.color_mkv0ej57 || '--').padEnd(8),
+            (row.text_mkv0etfg || '--').padEnd(8),
+            (row.color_mkv0xnn4 || '--')
+        ].join('| ');
+        
+        textReport += dataRow + '\n';
     });
-    textReport += '承認  コメント\n';
-    textReport += ''.padEnd(80, '-') + '\n';
-
-    // Data rows
-    extractedRows.forEach(row => {
-        textReport += `${String(row.day).padEnd(6)}`;
-        
-        menuItems.forEach((_, index) => {
-            const status = row[`menu${index + 1}Status`] || '—';
-            const displayStatus = status === '良' ? '✓' : status === '否' ? '✗' : '?';
-            textReport += `${displayStatus.padEnd(6)}`;
-        });
-        
-        const approver = row.approverStatus === '選択済み' ? '✓' : '—';
-        textReport += `${approver.padEnd(4)}`;
-        
-        const comment = row.comment && row.comment !== 'not found' ? row.comment : '—';
-        textReport += `${comment.substring(0, 30)}\n`;
-    });
-
-    // Summary section
-    const summary = generateSummaryData(extractedRows, menuItems);
-    const analytics = generateAnalyticsData(extractedRows, menuItems);
-    
-    textReport += `
-========================================
-📈 週間サマリー
-========================================
-
-📊 全体統計:
-  • 総日数: ${summary.totalDays}日
-  • 承認済み: ${summary.approvedDays}日 (${summary.approvalRate}%)
-  • コメント有り: ${summary.daysWithComments}日 (${summary.commentRate}%)
-
-🚨 重要度レベル:
-`;
-
-    const criticalItems = analytics.menuPerformance.filter(menu => menu.riskLevel === 'critical');
-    const highItems = analytics.menuPerformance.filter(menu => menu.riskLevel === 'high');
-
-    textReport += `  • 緊急対応必要: ${criticalItems.length}項目\n`;
-    textReport += `  • 要注意: ${highItems.length}項目\n\n`;
-
-    if (criticalItems.length > 0) {
-        textReport += `⚠️ 問題発生項目:\n`;
-        criticalItems.forEach(item => {
-            textReport += `  • ${item.menuName}: ${item.ngCount}件の問題 (成功率: ${item.successRate}%)\n`;
-        });
-    }
 
     textReport += `
 ========================================
@@ -216,10 +297,56 @@ ${menuItems.map((item, index) => `  項目${index + 1}: ${item}`).join('\n')}
     return textReport;
 }
 
-function generateSummaryData(extractedRows, menuItems) {
-    const totalDays = extractedRows.length;
-    const approvedDays = extractedRows.filter(row => row.approverStatus === '選択済み').length;
-    const daysWithComments = extractedRows.filter(row => row.comment && row.comment !== 'not found').length;
+function parseFileName(fileName) {
+    // Same parsing logic as general management
+    try {
+        const timeMatch = fileName.match(/^([^(]+)/);
+        let submissionTime = timeMatch ? timeMatch[1] : '';
+        
+        const emailMatch = fileName.match(/\(([^)]+)\)/);
+        const senderEmail = emailMatch ? emailMatch[1] : '';
+        
+        const fileNameMatch = fileName.match(/\)[^)]*(.+)$/);
+        let originalFileName = fileNameMatch ? fileNameMatch[1] : fileName;
+        
+        if (submissionTime.includes('T')) {
+            try {
+                const date = new Date(submissionTime);
+                submissionTime = date.toLocaleDateString('ja-JP', {
+                    year: 'numeric',
+                    month: '2-digit', 
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                // Keep original if parsing fails
+            }
+        }
+        
+        return {
+            submissionDate: submissionTime,
+            senderEmail: senderEmail,
+            originalFileName: originalFileName
+        };
+        
+    } catch (error) {
+        return {
+            submissionDate: 'Unknown',
+            senderEmail: 'Unknown', 
+            originalFileName: fileName
+        };
+    }
+}
+
+function generateSummaryData(rowData, menuItems) {
+    const totalDays = rowData.length;
+    const approvedDays = rowData.filter(row => 
+        row.color_mkv0xnn4 === '良'
+    ).length;
+    const daysWithComments = rowData.filter(row => 
+        row.text_mkv0etfg && row.text_mkv0etfg !== 'not found'
+    ).length;
     
     return {
         totalDays,
@@ -230,25 +357,38 @@ function generateSummaryData(extractedRows, menuItems) {
     };
 }
 
-function generateAnalyticsData(extractedRows, menuItems) {
+function generateAnalyticsData(rowData, menuItems) {
     const analytics = {
         menuPerformance: [],
         criticalDays: []
     };
     
-    // Menu item performance analysis
+    const menuColumnMapping = {
+        0: 'color_mkv02tqg', // Menu1
+        1: 'color_mkv0yb6g', // Menu2
+        2: 'color_mkv06e9z', // Menu3
+        3: 'color_mkv0x9mr', // Menu4
+        4: 'color_mkv0df43'  // Menu5
+    };
+    
     menuItems.forEach((menuItem, index) => {
-        const statusKey = `menu${index + 1}Status`;
-        const okCount = extractedRows.filter(row => row[statusKey] === '良').length;
-        const ngCount = extractedRows.filter(row => row[statusKey] === '否').length;
+        const mondayColumnId = menuColumnMapping[index];
+        
+        const okCount = rowData.filter(row => 
+            row[mondayColumnId] === '良'
+        ).length;
+        const ngCount = rowData.filter(row => 
+            row[mondayColumnId] === '否'
+        ).length;
         
         analytics.menuPerformance.push({
             menuId: index + 1,
             menuName: menuItem,
+            mondayColumnId: mondayColumnId,
             okCount,
             ngCount,
-            successRate: extractedRows.length > 0 ? (okCount / extractedRows.length * 100).toFixed(1) : 0,
-            riskLevel: ngCount > extractedRows.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
+            successRate: rowData.length > 0 ? (okCount / rowData.length * 100).toFixed(1) : 0,
+            riskLevel: ngCount > rowData.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
         });
     });
     
@@ -259,6 +399,8 @@ function getStatusCode(status) {
     switch(status) {
         case '良': return 1;
         case '否': return 0;
+        case '未選択': return -1;
+        case 'エラー': return -2;
         default: return -1;
     }
 }
