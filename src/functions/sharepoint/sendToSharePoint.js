@@ -48,6 +48,33 @@ async function getSharePointAccessToken(context) {
     }
 }
 
+// Cache for drive info to avoid repeated API calls
+let cachedDriveId = null;
+
+async function getDriveId(context) {
+    if (cachedDriveId) {
+        logMessage(`📋 Using cached drive ID: ${cachedDriveId}`, context);
+        return cachedDriveId;
+    }
+
+    const accessToken = await getSharePointAccessToken(context);
+    
+    // Get siteId
+    const siteResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const siteId = siteResponse.data.id;
+    
+    // Get drive ID
+    const driveResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    
+    cachedDriveId = driveResponse.data.id;
+    logMessage(`📋 Drive ID retrieved and cached: ${cachedDriveId}`, context);
+    return cachedDriveId;
+}
+
 // Upload JSON report to SharePoint using Microsoft Graph API
 // Simplified upload without retry (since folder is created beforehand)
 async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
@@ -55,11 +82,14 @@ async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
         logMessage(`📤 Starting JSON upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
+        const driveId = await getDriveId(context);
+        
         const jsonContent = JSON.stringify(jsonData, null, 2);
         const buffer = Buffer.from(jsonContent, 'utf8');
         logMessage(`📊 JSON buffer size: ${buffer.length} bytes`, context);
         
-        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        // Use drives API instead of sites path API
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}/${fileName}:/content`;
         logMessage(`🔗 Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
@@ -89,10 +119,14 @@ async function uploadTextToSharePoint(textContent, fileName, folderPath, context
         logMessage(`📤 Starting text upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
+        const driveId = await getDriveId(context);
+        
         const buffer = Buffer.from(textContent, 'utf8');
         logMessage(`📊 Text buffer size: ${buffer.length} bytes`, context);
         
-        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        // Use drives API instead of sites path API
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 Text Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
@@ -106,6 +140,10 @@ async function uploadTextToSharePoint(textContent, fileName, folderPath, context
         return response.data;
     } catch (error) {
         logMessage(`❌ Text upload failed: ${fileName} - ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
         throw error;
     }
 }
@@ -116,10 +154,14 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
         logMessage(`📤 Starting original document upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
+        const driveId = await getDriveId(context);
+        
         const buffer = Buffer.from(base64Content, 'base64');
         logMessage(`📊 Document buffer size: ${buffer.length} bytes`, context);
         
-        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        // Use drives API instead of sites path API
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 Document Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
@@ -133,6 +175,10 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
         return response.data;
     } catch (error) {
         logMessage(`❌ Original document upload failed: ${fileName} - ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
         throw error;
     }
 }
@@ -142,24 +188,7 @@ async function ensureSharePointFolder(folderPath, context) {
         logMessage(`📁 Ensuring SharePoint folder exists via Graph: ${folderPath}`, context);
 
         const accessToken = await getSharePointAccessToken(context);
-
-        // Step 1: Get siteId
-        const siteResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`
-            }
-        });
-        const siteId = siteResponse.data.id;
-        logMessage(`📋 Site ID: ${siteId}`, context);
-
-        // Step 2: Get drive ID
-        const driveResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive`, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`
-            }
-        });
-        const driveId = driveResponse.data.id;
-        logMessage(`📋 Drive ID: ${driveId}`, context);
+        const driveId = await getDriveId(context);
 
         // Step 3: Create folder structure using drive items API
         const folderParts = folderPath.split('/').filter(part => part);
