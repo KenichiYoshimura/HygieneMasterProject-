@@ -359,7 +359,6 @@ function generateTextReport(rowDataArray, menuItems, originalFileName, context) 
 }
 
 function parseFileName(fileName, context) {
-    // Now we can use logMessage with context
     logMessage(`🔍 Parsing filename: ${fileName}`, context);
     
     try {
@@ -372,6 +371,15 @@ function parseFileName(fileName, context) {
         if (emailMatch) {
             senderEmail = emailMatch[1];
             logMessage(`📧 Found email: ${senderEmail}`, context);
+            
+            // Extract original filename - everything AFTER the (email) closing parenthesis
+            const emailEndIndex = fileName.indexOf(emailMatch[0]) + emailMatch[0].length;
+            originalFileName = fileName.substring(emailEndIndex);
+            
+            // Clean up any leading/trailing whitespace and remove leading special characters
+            originalFileName = originalFileName.replace(/^\W+/, '').trim();
+            
+            logMessage(`📄 Found original filename: ${originalFileName}`, context);
         }
         
         // Extract timestamp (before first parenthesis)
@@ -409,33 +417,6 @@ function parseFileName(fileName, context) {
                 } catch (e) {
                     logMessage(`⚠️ Date parsing failed: ${e.message}`, context);
                 }
-            }
-        }
-        
-        // Extract original filename - improved regex to handle edge cases
-        // Look for content after the closing parenthesis
-        if (emailMatch) {
-            const afterEmail = fileName.substring(fileName.indexOf(emailMatch[0]) + emailMatch[0].length);
-            // Remove any leading non-alphanumeric characters except dots and spaces
-            originalFileName = afterEmail.replace(/^[^\w\s.]+/, '').trim();
-            if (originalFileName) {
-                logMessage(`📄 Found original filename: ${originalFileName}`, context);
-            } else {
-                // Fallback: try to extract from the end
-                const fallbackMatch = fileName.match(/[^)]*([^)]+\.[a-zA-Z]{2,4})$/);
-                if (fallbackMatch) {
-                    originalFileName = fallbackMatch[1].trim();
-                    logMessage(`📄 Fallback original filename: ${originalFileName}`, context);
-                } else {
-                    originalFileName = fileName; // Use full filename as fallback
-                }
-            }
-        } else {
-            // No email found, try different approach
-            const fileExtMatch = fileName.match(/([^/\\:*?"<>|]+\.[a-zA-Z]{2,4})$/);
-            if (fileExtMatch) {
-                originalFileName = fileExtMatch[1];
-                logMessage(`📄 Extracted by extension: ${originalFileName}`, context);
             }
         }
         
