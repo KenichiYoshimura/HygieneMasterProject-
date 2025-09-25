@@ -53,9 +53,10 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
-        // Ensure folder exists
-        logMessage("📁 Ensuring SharePoint folder exists...", context);
+        // IMPORTANT: Ensure folder exists BEFORE trying to upload files
+        logMessage("📁 Creating folder structure before upload...", context);
         await ensureSharePointFolder(folderPath, context);
+        logMessage("✅ Folder structure ready", context);
         
         // Generate file names
         const jsonFileName = `important-report-${baseFileName}-${timestamp}.json`;
@@ -74,6 +75,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         logMessage("✅ All important management reports uploaded to SharePoint successfully", context);
         
     } catch (error) {
+        logMessage(`❌ SharePoint upload process failed: ${error.message}`, context);
         handleError(error, 'SharePoint Upload', context);
         throw error;
     }
@@ -118,7 +120,6 @@ function generateJsonReport(extractedRows, menuItems, originalFileName) {
     return reportData;
 }
 
-// Changed from generatePdfReport to generateTextReport
 function generateTextReport(extractedRows, menuItems, originalFileName) {
     const reportDate = new Date().toLocaleDateString('ja-JP', {
         year: 'numeric',

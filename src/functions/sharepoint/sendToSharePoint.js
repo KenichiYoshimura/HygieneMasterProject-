@@ -49,22 +49,19 @@ async function getSharePointAccessToken(context) {
 }
 
 // Upload JSON report to SharePoint using Microsoft Graph API
+// Simplified upload without retry (since folder is created beforehand)
 async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
     try {
-        logMessage(`📤 Starting JSON upload via Microsoft Graph: ${fileName}`, context);
-        logMessage(`📁 Target folder: ${folderPath}`, context);
+        logMessage(`📤 Starting JSON upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
-        
         const jsonContent = JSON.stringify(jsonData, null, 2);
         const buffer = Buffer.from(jsonContent, 'utf8');
         logMessage(`📊 JSON buffer size: ${buffer.length} bytes`, context);
         
-        // Microsoft Graph API endpoint for file upload
         const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
-        logMessage(`🔗 Graph Upload URL: ${graphUploadUrl}`, context);
+        logMessage(`🔗 Upload URL: ${graphUploadUrl}`, context);
         
-        logMessage(`📤 Sending request to Microsoft Graph...`, context);
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -73,38 +70,15 @@ async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
             timeout: 30000
         });
 
-        logMessage(`✅ JSON uploaded via Microsoft Graph successfully: ${fileName}`, context);
-        logMessage(`📊 Response status: ${response.status}`, context);
+        logMessage(`✅ JSON uploaded successfully: ${fileName}`, context);
         return response.data;
+        
     } catch (error) {
-        logMessage(`❌ JSON upload via Graph failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
+        logMessage(`❌ JSON upload failed: ${fileName} - ${error.message}`, context);
         if (error.response) {
             logMessage(`❌ Response status: ${error.response.status}`, context);
             logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-            
-            // If folder doesn't exist, try to create it and retry
-            if (error.response.status === 400 && error.response.data.error.message.includes("Resource not found")) {
-                logMessage(`🔄 Attempting to create missing folders and retry...`, context);
-                try {
-                    await ensureSharePointFolder(folderPath, context);
-                    // Retry the upload
-                    const retryResponse = await axios.put(graphUploadUrl, buffer, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        timeout: 30000
-                    });
-                    logMessage(`✅ JSON uploaded via Microsoft Graph successfully on retry: ${fileName}`, context);
-                    return retryResponse.data;
-                } catch (retryError) {
-                    logMessage(`❌ Retry also failed: ${retryError.message}`, context);
-                    throw retryError;
-                }
-            }
         }
-        handleError(error, 'Microsoft Graph JSON Upload', context);
         throw error;
     }
 }
@@ -112,14 +86,13 @@ async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
 // Upload text report to SharePoint using Microsoft Graph API
 async function uploadTextToSharePoint(textContent, fileName, folderPath, context) {
     try {
-        logMessage(`📤 Starting text upload via Microsoft Graph: ${fileName}`, context);
+        logMessage(`📤 Starting text upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
         const buffer = Buffer.from(textContent, 'utf8');
-        logMessage(`📄 Text buffer size: ${buffer.length} bytes`, context);
+        logMessage(`📊 Text buffer size: ${buffer.length} bytes`, context);
         
         const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
-        logMessage(`🔗 Graph Text Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
@@ -129,16 +102,10 @@ async function uploadTextToSharePoint(textContent, fileName, folderPath, context
             timeout: 30000
         });
 
-        logMessage(`✅ Text uploaded via Microsoft Graph successfully: ${fileName}`, context);
+        logMessage(`✅ Text uploaded successfully: ${fileName}`, context);
         return response.data;
     } catch (error) {
-        logMessage(`❌ Text upload via Graph failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
-        if (error.response) {
-            logMessage(`❌ Response status: ${error.response.status}`, context);
-            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-        }
-        handleError(error, 'Microsoft Graph Text Upload', context);
+        logMessage(`❌ Text upload failed: ${fileName} - ${error.message}`, context);
         throw error;
     }
 }
@@ -146,14 +113,13 @@ async function uploadTextToSharePoint(textContent, fileName, folderPath, context
 // Upload original document to SharePoint using Microsoft Graph API
 async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folderPath, context) {
     try {
-        logMessage(`📤 Starting original document upload via Microsoft Graph: ${fileName}`, context);
+        logMessage(`📤 Starting original document upload: ${fileName}`, context);
         
         const accessToken = await getSharePointAccessToken(context);
         const buffer = Buffer.from(base64Content, 'base64');
-        logMessage(`📊 Original document buffer size: ${buffer.length} bytes`, context);
+        logMessage(`📊 Document buffer size: ${buffer.length} bytes`, context);
         
         const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
-        logMessage(`🔗 Graph Original Document Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
@@ -163,16 +129,10 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
             timeout: 60000
         });
 
-        logMessage(`✅ Original document uploaded via Microsoft Graph successfully: ${fileName}`, context);
+        logMessage(`✅ Original document uploaded successfully: ${fileName}`, context);
         return response.data;
     } catch (error) {
-        logMessage(`❌ Original document upload via Graph failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
-        if (error.response) {
-            logMessage(`❌ Response status: ${error.response.status}`, context);
-            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-        }
-        handleError(error, 'Microsoft Graph Original Document Upload', context);
+        logMessage(`❌ Original document upload failed: ${fileName} - ${error.message}`, context);
         throw error;
     }
 }

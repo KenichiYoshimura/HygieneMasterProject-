@@ -53,9 +53,10 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
-        // Ensure folder exists
-        logMessage("📁 Ensuring SharePoint folder exists...", context);
+        // IMPORTANT: Ensure folder exists BEFORE trying to upload files
+        logMessage("📁 Creating folder structure before upload...", context);
         await ensureSharePointFolder(folderPath, context);
+        logMessage("✅ Folder structure ready", context);
         
         // Generate file names
         const jsonFileName = `general-report-${baseFileName}-${timestamp}.json`;
@@ -74,6 +75,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         logMessage("✅ All general management reports uploaded to SharePoint successfully", context);
         
     } catch (error) {
+        logMessage(`❌ SharePoint upload process failed: ${error.message}`, context);
         handleError(error, 'SharePoint Upload', context);
         throw error;
     }
@@ -232,7 +234,7 @@ ${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
 function generateSummaryData(extractedRows, categories) {
     const totalDays = extractedRows.length;
     const approvedDays = extractedRows.filter(row => row.approverStatus === '選択済み').length;
-    const daysWithComments = extractedRows.filter(row => row.comment && row.comment !== 'not found').length;
+    const daysWithComments = extractedRows.filter row => row.comment && row.comment !== 'not found').length;
     
     return {
         totalDays,
