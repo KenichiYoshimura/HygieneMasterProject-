@@ -14,41 +14,56 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     logMessage("🚀 prepareImportantManagementReport() called", context);
     
     try {
-        // DEBUG: Print extractedRows and menuItems to understand the data structure
-        logMessage("🔍 DEBUG: Analyzing extractedRows structure...", context);
-        logMessage(`📊 extractedRows length: ${extractedRows.length}`, context);
+        // DEBUG: Print the exact structure we're receiving
+        logMessage("🔍 DEBUG: Raw input analysis...", context);
+        logMessage(`📊 extractedRows type: ${typeof extractedRows}`, context);
+        logMessage(`📊 extractedRows length: ${Array.isArray(extractedRows) ? extractedRows.length : 'not array'}`, context);
+        logMessage(`📊 extractedRows content:`, context);
+        logMessage(`${JSON.stringify(extractedRows, null, 2)}`, context);
         
-        if (extractedRows.length > 0) {
-            logMessage(`📋 First extractedRow sample:`, context);
-            logMessage(`${JSON.stringify(extractedRows[0], null, 2)}`, context);
-            
-            // Access the nested .row property
-            logMessage(`📋 First row data:`, context);
-            logMessage(`${JSON.stringify(extractedRows[0].row, null, 2)}`, context);
-            
-            logMessage(`📋 All row keys from first row:`, context);
-            logMessage(`${Object.keys(extractedRows[0].row).join(', ')}`, context);
-        }
-        
-        logMessage("🔍 DEBUG: Analyzing menuItems structure...", context);
-        logMessage(`📊 menuItems length: ${menuItems.length}`, context);
-        logMessage(`📋 menuItems content:`, context);
+        logMessage(`📊 menuItems:`, context);
         logMessage(`${JSON.stringify(menuItems, null, 2)}`, context);
         
-        // Extract just the row data from extractedRows
-        const rowData = extractedRows.map(item => item.row);
+        logMessage(`📊 originalFileName: ${originalFileName}`, context);
+        
+        // Handle both array and single object formats
+        let rowDataArray = [];
+        
+        if (Array.isArray(extractedRows)) {
+            // If it's an array, extract the .row property from each item
+            rowDataArray = extractedRows.map(item => {
+                if (item && item.row) {
+                    return item.row;
+                } else {
+                    return item; // fallback if no .row property
+                }
+            });
+        } else if (extractedRows && typeof extractedRows === 'object') {
+            // If it's a single object, wrap it in an array
+            rowDataArray = [extractedRows.row || extractedRows];
+        } else {
+            logMessage("❌ ERROR: extractedRows is neither array nor object", context);
+            throw new Error("Invalid extractedRows format");
+        }
+        
+        logMessage(`📊 Processed rowDataArray length: ${rowDataArray.length}`, context);
+        if (rowDataArray.length > 0) {
+            logMessage(`📊 First processed row:`, context);
+            logMessage(`${JSON.stringify(rowDataArray[0], null, 2)}`, context);
+            logMessage(`📊 Available keys: ${Object.keys(rowDataArray[0]).join(', ')}`, context);
+        }
         
         // Generate structured JSON data
-        const jsonReport = generateJsonReport(rowData, menuItems, originalFileName);
+        const jsonReport = generateJsonReport(rowDataArray, menuItems, originalFileName);
         logMessage("✅ JSON report generated", context);
         
         // Generate text report
-        const textReport = generateTextReport(rowData, menuItems, originalFileName);
+        const textReport = generateTextReport(rowDataArray, menuItems, originalFileName);
         logMessage("✅ Text report generated", context);
         
         // Upload to SharePoint
         logMessage("📤 Starting SharePoint upload...", context);
-        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowData, context);
+        await uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowDataArray, context);
         logMessage("✅ SharePoint upload completed", context);
         
         return {
@@ -62,19 +77,15 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     }
 }
 
-async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, rowData, context) {
+async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, originalFileName, extractedRows, context) {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
+        const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'unknown';
         
-        // Use the Monday.com column data directly
-        const location = rowData[0]?.text_mkv0z6d || 'unknown';
-        const dateStr = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+        // Get date info
+        const dateStr = extractedRows[0]?.date4 || new Date().toISOString().split('T')[0];
         const [year, month] = dateStr.split('-');
-        
-        logMessage(`📋 Resolved location: ${location}`, context);
-        logMessage(`📋 Resolved year: ${year}`, context);
-        logMessage(`📋 Resolved month: ${month}`, context);
         
         // Use environment variables for folder structure
         const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
@@ -104,13 +115,13 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
     }
 }
 
-function generateJsonReport(rowData, menuItems, originalFileName) {
+function generateJsonReport(rowDataArray, menuItems, originalFileName) {
     // Parse original filename for submission info
     const fileNameParts = parseFileName(originalFileName);
     
     // Get store and date info from first row
-    const storeName = rowData[0]?.text_mkv0z6d || "unknown";
-    const fullDate = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
+    const storeName = rowDataArray[0]?.text_mkv0z6d || "unknown";
+    const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
     const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
     const menuColumnMapping = {
@@ -159,18 +170,18 @@ function generateJsonReport(rowData, menuItems, originalFileName) {
         // Table headers (matching text report structure)
         tableHeaders: [
             "日付",
-            menuItems[0] || "Menu1",
-            menuItems[1] || "Menu2", 
-            menuItems[2] || "Menu3",
-            menuItems[3] || "Menu4",
-            menuItems[4] || "Menu5",
+            "Menu 1",
+            "Menu 2", 
+            "Menu 3",
+            "Menu 4",
+            "Menu 5",
             "日常点検",
             "特記事項",
             "確認者"
         ],
         
         // Daily data rows
-        dailyData: rowData.map(row => {
+        dailyData: rowDataArray.map(row => {
             const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
             
             return {
@@ -229,8 +240,8 @@ function generateJsonReport(rowData, menuItems, originalFileName) {
         }),
         
         // Summary and analytics
-        summary: generateSummaryData(rowData, menuItems),
-        analytics: generateAnalyticsData(rowData, menuItems),
+        summary: generateSummaryData(rowDataArray, menuItems),
+        analytics: generateAnalyticsData(rowDataArray, menuItems),
         
         // Footer information
         footer: {
@@ -243,14 +254,26 @@ function generateJsonReport(rowData, menuItems, originalFileName) {
     return reportData;
 }
 
-function generateTextReport(rowData, menuItems, originalFileName) {
+function generateTextReport(rowDataArray, menuItems, originalFileName) {
     // Parse original filename for submission info
     const fileNameParts = parseFileName(originalFileName);
     
-    // Get store and date info from first row
-    const storeName = rowData[0]?.text_mkv0z6d || 'Unknown Store';
-    const fullDate = rowData[0]?.date4 || new Date().toISOString().split('T')[0];
-    const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
+    // Get store and date info from first row (if available)
+    let storeName = 'Unknown Store';
+    let yearMonth = new Date().toISOString().substring(0, 7);
+    
+    if (rowDataArray.length > 0 && rowDataArray[0]) {
+        const firstRow = rowDataArray[0];
+        storeName = firstRow.text_mkv0z6d || firstRow.store || 'Unknown Store';
+        
+        if (firstRow.date4) {
+            yearMonth = firstRow.date4.substring(0, 7);
+        } else if (firstRow.year && firstRow.month) {
+            yearMonth = `${firstRow.year}-${String(firstRow.month).padStart(2, '0')}`;
+        }
+        
+        logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`, context);
+    }
     
     let textReport = `
 重要管理の実施記録
@@ -261,31 +284,68 @@ function generateTextReport(rowData, menuItems, originalFileName) {
 店舗名：${storeName}
 年月：${yearMonth}
 
+重要管理項目：
 `;
 
-    // Create table header
-    const headerRow = `日付 | ${menuItems[0]} | ${menuItems[1]} | ${menuItems[2]} | ${menuItems[3]} | ${menuItems[4]} | 日常点検 | 特記事項 | 確認者`;
+    // Add menu item descriptions
+    if (menuItems && menuItems.length > 0) {
+        menuItems.forEach((menuItem, index) => {
+            if (menuItem && menuItem !== 'not found') {
+                textReport += `Menu ${index + 1}: ${menuItem}\n`;
+            }
+        });
+    } else {
+        // Fallback menu item descriptions
+        const defaultMenuItems = [
+            '重要管理項目1',
+            '重要管理項目2',
+            '重要管理項目3',
+            '重要管理項目4',
+            '重要管理項目5'
+        ];
+        defaultMenuItems.forEach((menuItem, index) => {
+            textReport += `Menu ${index + 1}: ${menuItem}\n`;
+        });
+    }
+
+    textReport += '\n';
+
+    // Create shorter table header
+    const headerRow = `日付 | Menu 1 | Menu 2 | Menu 3 | Menu 4 | Menu 5 | 日常点検 | 特記事項 | 確認者`;
     textReport += headerRow + '\n';
     textReport += ''.padEnd(headerRow.length, '-') + '\n';
 
     // Add data rows
-    rowData.forEach(row => {
-        const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
-        
-        const dataRow = [
-            dayOnly.padEnd(4),
-            (row.color_mkv02tqg || '--').padEnd(menuItems[0].length + 1),
-            (row.color_mkv0yb6g || '--').padEnd(menuItems[1].length + 1), 
-            (row.color_mkv06e9z || '--').padEnd(menuItems[2].length + 1),
-            (row.color_mkv0x9mr || '--').padEnd(menuItems[3].length + 1),
-            (row.color_mkv0df43 || '--').padEnd(menuItems[4].length + 1),
-            (row.color_mkv0ej57 || '--').padEnd(8),
-            (row.text_mkv0etfg || '--').padEnd(8),
-            (row.color_mkv0xnn4 || '--')
-        ].join('| ');
-        
-        textReport += dataRow + '\n';
-    });
+    if (rowDataArray.length > 0) {
+        rowDataArray.forEach(row => {
+            if (row) {
+                // Extract day from date4 (remove year-month part)
+                let dayOnly = '--';
+                if (row.date4) {
+                    dayOnly = row.date4.split('-')[2] || '--';
+                } else if (row.day) {
+                    dayOnly = String(row.day).padStart(2, '0');
+                }
+                
+                const dataRow = [
+                    dayOnly.padEnd(4),
+                    (row.color_mkv02tqg || '--').padEnd(7),
+                    (row.color_mkv0yb6g || '--').padEnd(7), 
+                    (row.color_mkv06e9z || '--').padEnd(7),
+                    (row.color_mkv0x9mr || '--').padEnd(7),
+                    (row.color_mkv0df43 || '--').padEnd(7),
+                    (row.color_mkv0ej57 || '--').padEnd(8),
+                    (row.text_mkv0etfg && row.text_mkv0etfg !== 'not found' ? row.text_mkv0etfg.substring(0, 8) : '--').padEnd(8),
+                    (row.color_mkv0xnn4 || '--')
+                ].join('| ');
+                
+                textReport += dataRow + '\n';
+            }
+        });
+    } else {
+        // No data available
+        textReport += 'データが見つかりませんでした。\n';
+    }
 
     textReport += `
 ========================================
@@ -299,38 +359,71 @@ function generateTextReport(rowData, menuItems, originalFileName) {
 
 function parseFileName(fileName) {
     // Same parsing logic as general management
+    logMessage(`🔍 Parsing filename: ${fileName}`);
+    
     try {
+        let submissionTime = '';
+        let senderEmail = '';
+        let originalFileName = fileName;
+        
+        // Extract email (between parentheses)
+        const emailMatch = fileName.match(/\(([^)]*@[^)]*)\)/);
+        if (emailMatch) {
+            senderEmail = emailMatch[1];
+            logMessage(`📧 Found email: ${senderEmail}`);
+        }
+        
+        // Extract timestamp (before first parenthesis)
         const timeMatch = fileName.match(/^([^(]+)/);
-        let submissionTime = timeMatch ? timeMatch[1] : '';
-        
-        const emailMatch = fileName.match(/\(([^)]+)\)/);
-        const senderEmail = emailMatch ? emailMatch[1] : '';
-        
-        const fileNameMatch = fileName.match(/\)[^)]*(.+)$/);
-        let originalFileName = fileNameMatch ? fileNameMatch[1] : fileName;
-        
-        if (submissionTime.includes('T')) {
-            try {
-                const date = new Date(submissionTime);
-                submissionTime = date.toLocaleDateString('ja-JP', {
-                    year: 'numeric',
-                    month: '2-digit', 
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-            } catch (e) {
-                // Keep original if parsing fails
+        if (timeMatch) {
+            submissionTime = timeMatch[1];
+            logMessage(`⏰ Found timestamp: ${submissionTime}`);
+            
+            // Try to parse the timestamp
+            if (submissionTime.includes('T')) {
+                try {
+                    // Handle format like "20260826T050735"
+                    const cleanTime = submissionTime.replace(/[^\d]/g, '');
+                    if (cleanTime.length >= 8) {
+                        const year = cleanTime.substring(0, 4);
+                        const month = cleanTime.substring(4, 6);
+                        const day = cleanTime.substring(6, 8);
+                        const hour = cleanTime.substring(8, 10) || '00';
+                        const minute = cleanTime.substring(10, 12) || '00';
+                        
+                        const isoString = `${year}-${month}-${day}T${hour}:${minute}:00`;
+                        const date = new Date(isoString);
+                        
+                        submissionTime = date.toLocaleDateString('ja-JP', {
+                            year: 'numeric',
+                            month: '2-digit', 
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        logMessage(`📅 Parsed date: ${submissionTime}`);
+                    }
+                } catch (e) {
+                    logMessage(`⚠️ Date parsing failed: ${e.message}`);
+                }
             }
         }
         
+        // Extract original filename (after last closing parenthesis)
+        const fileMatch = fileName.match(/\)[^)]*(.+)$/);
+        if (fileMatch) {
+            originalFileName = fileMatch[1];
+            logMessage(`📄 Found original filename: ${originalFileName}`);
+        }
+        
         return {
-            submissionDate: submissionTime,
-            senderEmail: senderEmail,
+            submissionDate: submissionTime || 'Unknown',
+            senderEmail: senderEmail || 'Unknown',
             originalFileName: originalFileName
         };
         
     } catch (error) {
+        logMessage(`❌ Filename parsing error: ${error.message}`);
         return {
             submissionDate: 'Unknown',
             senderEmail: 'Unknown', 
@@ -339,12 +432,12 @@ function parseFileName(fileName) {
     }
 }
 
-function generateSummaryData(rowData, menuItems) {
-    const totalDays = rowData.length;
-    const approvedDays = rowData.filter(row => 
+function generateSummaryData(rowDataArray, menuItems) {
+    const totalDays = rowDataArray.length;
+    const approvedDays = rowDataArray.filter(row => 
         row.color_mkv0xnn4 === '良'
     ).length;
-    const daysWithComments = rowData.filter(row => 
+    const daysWithComments = rowDataArray.filter(row => 
         row.text_mkv0etfg && row.text_mkv0etfg !== 'not found'
     ).length;
     
@@ -357,7 +450,7 @@ function generateSummaryData(rowData, menuItems) {
     };
 }
 
-function generateAnalyticsData(rowData, menuItems) {
+function generateAnalyticsData(rowDataArray, menuItems) {
     const analytics = {
         menuPerformance: [],
         criticalDays: []
@@ -374,10 +467,10 @@ function generateAnalyticsData(rowData, menuItems) {
     menuItems.forEach((menuItem, index) => {
         const mondayColumnId = menuColumnMapping[index];
         
-        const okCount = rowData.filter(row => 
+        const okCount = rowDataArray.filter(row => 
             row[mondayColumnId] === '良'
         ).length;
-        const ngCount = rowData.filter(row => 
+        const ngCount = rowDataArray.filter(row => 
             row[mondayColumnId] === '否'
         ).length;
         
@@ -387,8 +480,8 @@ function generateAnalyticsData(rowData, menuItems) {
             mondayColumnId: mondayColumnId,
             okCount,
             ngCount,
-            successRate: rowData.length > 0 ? (okCount / rowData.length * 100).toFixed(1) : 0,
-            riskLevel: ngCount > rowData.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
+            successRate: rowDataArray.length > 0 ? (okCount / rowDataArray.length * 100).toFixed(1) : 0,
+            riskLevel: ngCount > rowDataArray.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
         });
     });
     

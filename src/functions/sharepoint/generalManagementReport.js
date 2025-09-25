@@ -267,7 +267,7 @@ function generateJsonReport(extractedRows, categories, originalFileName) {
     return reportData;
 }
 
-function generateTextReport(rowData, categories, originalFileName) {
+function generateTextReport(rowDataArray, categories, originalFileName) {
     // Parse original filename for submission info
     const fileNameParts = parseFileName(originalFileName);
     
@@ -275,8 +275,8 @@ function generateTextReport(rowData, categories, originalFileName) {
     let storeName = 'Unknown Store';
     let yearMonth = new Date().toISOString().substring(0, 7);
     
-    if (rowData.length > 0 && rowData[0]) {
-        const firstRow = rowData[0];
+    if (rowDataArray.length > 0 && rowDataArray[0]) {
+        const firstRow = rowDataArray[0];
         storeName = firstRow.text_mkv0z6d || firstRow.store || 'Unknown Store';
         
         if (firstRow.date4) {
@@ -285,7 +285,7 @@ function generateTextReport(rowData, categories, originalFileName) {
             yearMonth = `${firstRow.year}-${String(firstRow.month).padStart(2, '0')}`;
         }
         
-        logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`);
+        logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`, context);
     }
     
     let textReport = `
@@ -297,26 +297,42 @@ function generateTextReport(rowData, categories, originalFileName) {
 店舗名：${storeName}
 年月：${yearMonth}
 
+管理カテゴリ：
 `;
 
-    // Create table header - handle missing categories gracefully
-    const categoryNames = categories.length >= 7 ? categories : [
-        '原材料の受入の確認',
-        '庫内温度の確認',
-        '交差汚染・二次汚染の防止',
-        '器具等の洗浄・消毒・殺菌',
-        'トイレの洗浄・消毒',
-        '従業員の健康管理等',
-        '手洗いの実施'
-    ];
-    
-    const headerRow = `日付 | ${categoryNames.slice(0, 7).join(' | ')} | 特記事項 | 確認者`;
+    // Add category descriptions
+    if (categories && categories.length > 0) {
+        categories.forEach((category, index) => {
+            if (category && category !== 'not found') {
+                textReport += `Cat ${index + 1}: ${category}\n`;
+            }
+        });
+    } else {
+        // Fallback category descriptions
+        const defaultCategories = [
+            '原材料の受入の確認',
+            '庫内温度の確認 冷蔵庫・冷凍庫(°C)',
+            '交差汚染・二次汚染の防止',
+            '器具等の洗浄・消毒・殺菌',
+            'トイレの洗浄・消毒',
+            '従業員の健康管理等',
+            '手洗いの実施'
+        ];
+        defaultCategories.forEach((category, index) => {
+            textReport += `Cat ${index + 1}: ${category}\n`;
+        });
+    }
+
+    textReport += '\n';
+
+    // Create shorter table header
+    const headerRow = `日付 | Cat 1 | Cat 2 | Cat 3 | Cat 4 | Cat 5 | Cat 6 | Cat 7 | 特記事項 | 確認者`;
     textReport += headerRow + '\n';
     textReport += ''.padEnd(headerRow.length, '-') + '\n';
 
     // Add data rows
-    if (rowData.length > 0) {
-        rowData.forEach(row => {
+    if (rowDataArray.length > 0) {
+        rowDataArray.forEach(row => {
             if (row) {
                 // Extract day from date4 (remove year-month part)
                 let dayOnly = '--';
@@ -328,14 +344,14 @@ function generateTextReport(rowData, categories, originalFileName) {
                 
                 const dataRow = [
                     dayOnly.padEnd(4),
-                    (row.color_mkv02tqg || '--').padEnd(12),
-                    (row.color_mkv0yb6g || '--').padEnd(25), 
-                    (row.color_mkv06e9z || '--').padEnd(19),
-                    (row.color_mkv0x9mr || '--').padEnd(20),
-                    (row.color_mkv0df43 || '--').padEnd(16),
-                    (row.color_mkv5fa8m || '--').padEnd(16),
-                    (row.color_mkv59ent || '--').padEnd(12),
-                    (row.text_mkv0etfg || '--').padEnd(8),
+                    (row.color_mkv02tqg || '--').padEnd(6),
+                    (row.color_mkv0yb6g || '--').padEnd(6), 
+                    (row.color_mkv06e9z || '--').padEnd(6),
+                    (row.color_mkv0x9mr || '--').padEnd(6),
+                    (row.color_mkv0df43 || '--').padEnd(6),
+                    (row.color_mkv5fa8m || '--').padEnd(6),
+                    (row.color_mkv59ent || '--').padEnd(6),
+                    (row.text_mkv0etfg && row.text_mkv0etfg !== 'not found' ? row.text_mkv0etfg.substring(0, 8) : '--').padEnd(8),
                     (row.color_mkv0xnn4 || '--')
                 ].join('| ');
                 
