@@ -173,8 +173,16 @@ async function ensureSharePointFolder(folderPath, context) {
                 logMessage(`📁 Folder already exists: ${currentPath}`, context);
             } catch (checkError) {
                 if (checkError.response && checkError.response.status === 404) {
-                    // Create folder
-                    const createUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${currentPath.substring(0, currentPath.lastIndexOf('/')) || ''}/children`;
+                    // Determine parent path
+                    const parentPath = currentPath.includes('/')
+                        ? currentPath.substring(0, currentPath.lastIndexOf('/'))
+                        : '';
+
+                    // Correct folder creation URL format
+                    const createUrl = parentPath
+                        ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${parentPath}:/children`
+                        : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/children`;
+
                     logMessage(`📁 Creating folder '${folderName}' at '${createUrl}'`, context);
 
                     await axios.post(createUrl, {
