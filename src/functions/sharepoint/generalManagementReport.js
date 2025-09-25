@@ -55,11 +55,11 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
         }
         
         // Generate structured JSON data
-        const jsonReport = generateJsonReport(rowDataArray, categories, originalFileName);
+        const jsonReport = generateJsonReport(rowDataArray, categories, originalFileName, context);
         logMessage("✅ JSON report generated", context);
         
-        // Generate text report
-        const textReport = generateTextReport(rowDataArray, categories, originalFileName);
+        // Generate text report - NOW PASSING CONTEXT
+        const textReport = generateTextReport(rowDataArray, categories, originalFileName, context);
         logMessage("✅ Text report generated", context);
         
         // Upload to SharePoint
@@ -121,9 +121,9 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
     }
 }
 
-function generateJsonReport(extractedRows, categories, originalFileName) {
+function generateJsonReport(extractedRows, categories, originalFileName, context) {
     // Parse original filename for submission info
-    const fileNameParts = parseFileName(originalFileName);
+    const fileNameParts = parseFileName(originalFileName, context);
     
     // Get store and date info from first row
     const storeName = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || "unknown";
@@ -267,9 +267,9 @@ function generateJsonReport(extractedRows, categories, originalFileName) {
     return reportData;
 }
 
-function generateTextReport(rowDataArray, categories, originalFileName) {
+function generateTextReport(rowDataArray, categories, originalFileName, context) {
     // Parse original filename for submission info
-    const fileNameParts = parseFileName(originalFileName);
+    const fileNameParts = parseFileName(originalFileName, context);
     
     // Get store and date info from first row (if available)
     let storeName = 'Unknown Store';
@@ -285,6 +285,7 @@ function generateTextReport(rowDataArray, categories, originalFileName) {
             yearMonth = `${firstRow.year}-${String(firstRow.month).padStart(2, '0')}`;
         }
         
+        // Remove the context parameter since it's not available in this function
         logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`, context);
     }
     
@@ -373,9 +374,8 @@ function generateTextReport(rowDataArray, categories, originalFileName) {
     return textReport;
 }
 
-function parseFileName(fileName) {
-    // Enhanced parsing for different filename formats
-    logMessage(`🔍 Parsing filename: ${fileName}`);
+function parseFileName(fileName, context) {
+    logMessage(`🔍 Parsing filename: ${fileName}`, context);
     
     try {
         let submissionTime = '';
@@ -386,14 +386,14 @@ function parseFileName(fileName) {
         const emailMatch = fileName.match(/\(([^)]*@[^)]*)\)/);
         if (emailMatch) {
             senderEmail = emailMatch[1];
-            logMessage(`📧 Found email: ${senderEmail}`);
+            logMessage(`📧 Found email: ${senderEmail}`, context);
         }
         
         // Extract timestamp (before first parenthesis)
         const timeMatch = fileName.match(/^([^(]+)/);
         if (timeMatch) {
             submissionTime = timeMatch[1];
-            logMessage(`⏰ Found timestamp: ${submissionTime}`);
+            logMessage(`⏰ Found timestamp: ${submissionTime}`, context);
             
             // Try to parse the timestamp
             if (submissionTime.includes('T')) {
@@ -418,11 +418,11 @@ function parseFileName(fileName) {
                                 hour: '2-digit',
                                 minute: '2-digit'
                             });
-                            logMessage(`📅 Parsed date: ${submissionTime}`);
+                            logMessage(`📅 Parsed date: ${submissionTime}`, context);
                         }
                     }
                 } catch (e) {
-                    logMessage(`⚠️ Date parsing failed: ${e.message}`);
+                    logMessage(`⚠️ Date parsing failed: ${e.message}`, context);
                 }
             }
         }
@@ -434,13 +434,13 @@ function parseFileName(fileName) {
             // Remove any leading non-alphanumeric characters except dots and spaces
             originalFileName = afterEmail.replace(/^[^\w\s.]+/, '').trim();
             if (originalFileName) {
-                logMessage(`📄 Found original filename: ${originalFileName}`);
+                logMessage(`📄 Found original filename: ${originalFileName}`, context);
             } else {
                 // Fallback: try to extract from the end
                 const fallbackMatch = fileName.match(/[^)]*([^)]+\.[a-zA-Z]{2,4})$/);
                 if (fallbackMatch) {
                     originalFileName = fallbackMatch[1].trim();
-                    logMessage(`📄 Fallback original filename: ${originalFileName}`);
+                    logMessage(`📄 Fallback original filename: ${originalFileName}`, context);
                 } else {
                     originalFileName = fileName; // Use full filename as fallback
                 }
@@ -450,7 +450,7 @@ function parseFileName(fileName) {
             const fileExtMatch = fileName.match(/([^/\\:*?"<>|]+\.[a-zA-Z]{2,4})$/);
             if (fileExtMatch) {
                 originalFileName = fileExtMatch[1];
-                logMessage(`📄 Extracted by extension: ${originalFileName}`);
+                logMessage(`📄 Extracted by extension: ${originalFileName}`, context);
             }
         }
         
@@ -461,7 +461,7 @@ function parseFileName(fileName) {
         };
         
     } catch (error) {
-        logMessage(`❌ Filename parsing error: ${error.message}`);
+        logMessage(`❌ Filename parsing error: ${error.message}`, context);
         return {
             submissionDate: 'Unknown',
             senderEmail: 'Unknown', 
