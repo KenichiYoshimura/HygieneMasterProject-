@@ -94,8 +94,8 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         logMessage(`📋 Form date used for folder structure: ${dateStr}`, context);
         
         // Use environment variables for folder structure - CORRECTED FOLDER NAME
-        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
-        const folderPath = `${basePath}/衛生管理日誌/${year}/${String(month).padStart(2, '0')}/${location}`;
+        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || '衛生管理日誌';
+        const folderPath = `${basePath}/一般衛生管理の実施記録/${year}/${String(month).padStart(2, '0')}/${location}`;
         
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
         
