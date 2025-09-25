@@ -120,54 +120,26 @@ function generateJsonReport(rowDataArray, menuItems, originalFileName, context) 
     const fileNameParts = parseFileName(originalFileName, context);
     
     // Get store and date info from first row
-    const storeName = rowDataArray[0]?.text_mkv0z6d || "unknown";
+    const storeName = rowDataArray[0]?.text_mkv0z6d || "Unknown Store";
     const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
     const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
     
-    const menuColumnMapping = {
-        0: 'color_mkv02tqg', // Menu1
-        1: 'color_mkv0yb6g', // Menu2
-        2: 'color_mkv06e9z', // Menu3
-        3: 'color_mkv0x9mr', // Menu4
-        4: 'color_mkv0df43'  // Menu5
-    };
-
     const reportData = {
-        metadata: {
-            reportType: "important_management_form",
-            generatedAt: new Date().toISOString(),
-            originalFileName: originalFileName,
-            version: "1.0",
-            mondayColumnMapping: {
-                name: "name",
-                date: "date4", 
-                location: "text_mkv0z6d",
-                comments: "text_mkv0etfg",
-                approver: "color_mkv0xnn4",
-                dailyCheck: "color_mkv0ej57",
-                menuItems: menuColumnMapping
-            }
-        },
+        // Report header (matching TXT exactly)
+        title: "重要管理の実施記録",
+        submissionDate: fileNameParts.submissionDate,
+        submitter: fileNameParts.senderEmail,
+        originalFileName: fileNameParts.originalFileName,
+        storeName: storeName,
+        yearMonth: yearMonth,
         
-        // Report header information
-        reportHeader: {
-            title: "重要管理の実施記録",
-            submissionDate: fileNameParts.submissionDate,
-            submitter: fileNameParts.senderEmail,
-            originalFileName: fileNameParts.originalFileName,
-            storeName: storeName,
-            yearMonth: yearMonth
-        },
-        
-        // Menu items with their Monday column mappings
-        menuItems: menuItems.map((item, index) => ({
-            id: index + 1,
-            name: item,
-            mondayColumnId: menuColumnMapping[index] || `menu${index + 1}`,
-            key: `menu${index + 1}`
+        // Menu item definitions (matching TXT exactly)
+        menuItems: menuItems.map((menuItem, index) => ({
+            id: `Menu ${index + 1}`,
+            name: menuItem
         })),
         
-        // Table headers (matching text report structure)
+        // Table headers (matching TXT exactly)
         tableHeaders: [
             "日付",
             "Menu 1",
@@ -180,70 +152,24 @@ function generateJsonReport(rowDataArray, menuItems, originalFileName, context) 
             "確認者"
         ],
         
-        // Daily data rows
+        // Daily data (matching TXT table exactly)
         dailyData: rowDataArray.map(row => {
             const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
             
             return {
-                // Table row data (same order as headers)
-                tableRow: [
-                    dayOnly,
-                    row.color_mkv02tqg || '--',
-                    row.color_mkv0yb6g || '--', 
-                    row.color_mkv06e9z || '--',
-                    row.color_mkv0x9mr || '--',
-                    row.color_mkv0df43 || '--',
-                    row.color_mkv0ej57 || '--',
-                    row.text_mkv0etfg || '--',
-                    row.color_mkv0xnn4 || '--'
-                ],
-                
-                // Individual field access
-                day: dayOnly,
-                menuStatuses: {
-                    menu1: row.color_mkv02tqg || '--',
-                    menu2: row.color_mkv0yb6g || '--',
-                    menu3: row.color_mkv06e9z || '--',
-                    menu4: row.color_mkv0x9mr || '--',
-                    menu5: row.color_mkv0df43 || '--'
-                },
-                dailyCheck: row.color_mkv0ej57 || '--',
-                comments: row.text_mkv0etfg || '--',
-                approver: row.color_mkv0xnn4 || '--',
-                
-                // Raw Monday column data
-                mondayColumnData: {
-                    name: row.name,
-                    date4: row.date4,
-                    text_mkv0z6d: row.text_mkv0z6d,
-                    color_mkv02tqg: row.color_mkv02tqg,
-                    color_mkv0yb6g: row.color_mkv0yb6g,
-                    color_mkv06e9z: row.color_mkv06e9z,
-                    color_mkv0x9mr: row.color_mkv0x9mr,
-                    color_mkv0df43: row.color_mkv0df43,
-                    color_mkv0ej57: row.color_mkv0ej57,
-                    text_mkv0etfg: row.text_mkv0etfg,
-                    color_mkv0xnn4: row.color_mkv0xnn4
-                },
-                
-                // Status codes for analysis
-                statusCodes: {
-                    menu1: getStatusCode(row.color_mkv02tqg),
-                    menu2: getStatusCode(row.color_mkv0yb6g),
-                    menu3: getStatusCode(row.color_mkv06e9z),
-                    menu4: getStatusCode(row.color_mkv0x9mr),
-                    menu5: getStatusCode(row.color_mkv0df43),
-                    dailyCheck: getStatusCode(row.color_mkv0ej57),
-                    approver: getStatusCode(row.color_mkv0xnn4)
-                }
+                日付: dayOnly,
+                "Menu 1": row.color_mkv02tqg || '--',
+                "Menu 2": row.color_mkv0yb6g || '--', 
+                "Menu 3": row.color_mkv06e9z || '--',
+                "Menu 4": row.color_mkv0x9mr || '--',
+                "Menu 5": row.color_mkv0df43 || '--',
+                日常点検: row.color_mkv0ej57 || '--',
+                特記事項: row.text_mkv0etfg || '--',
+                確認者: row.color_mkv0xnn4 || '--'
             };
         }),
         
-        // Summary and analytics
-        summary: generateSummaryData(rowDataArray, menuItems),
-        analytics: generateAnalyticsData(rowDataArray, menuItems),
-        
-        // Footer information
+        // Footer (matching TXT exactly)
         footer: {
             generatedBy: "HygienMaster システム",
             generatedAt: new Date().toISOString(),
