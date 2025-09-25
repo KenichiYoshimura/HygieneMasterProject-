@@ -378,9 +378,6 @@ function parseFileName(fileName) {
     logMessage(`🔍 Parsing filename: ${fileName}`);
     
     try {
-        // Handle format: "timestamp(email)filename"
-        // Example: "20260826T050735(kyosh1107@gmail.com)一般衛生管理シート V2.0 (記入後) 2-0.pdf"
-        
         let submissionTime = '';
         let senderEmail = '';
         let originalFileName = fileName;
@@ -413,14 +410,16 @@ function parseFileName(fileName) {
                         const isoString = `${year}-${month}-${day}T${hour}:${minute}:00`;
                         const date = new Date(isoString);
                         
-                        submissionTime = date.toLocaleDateString('ja-JP', {
-                            year: 'numeric',
-                            month: '2-digit', 
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        logMessage(`📅 Parsed date: ${submissionTime}`);
+                        if (!isNaN(date.getTime())) {
+                            submissionTime = date.toLocaleDateString('ja-JP', {
+                                year: 'numeric',
+                                month: '2-digit', 
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            logMessage(`📅 Parsed date: ${submissionTime}`);
+                        }
                     }
                 } catch (e) {
                     logMessage(`⚠️ Date parsing failed: ${e.message}`);
@@ -428,17 +427,37 @@ function parseFileName(fileName) {
             }
         }
         
-        // Extract original filename (after last closing parenthesis)
-        const fileMatch = fileName.match(/\)[^)]*(.+)$/);
-        if (fileMatch) {
-            originalFileName = fileMatch[1];
-            logMessage(`📄 Found original filename: ${originalFileName}`);
+        // Extract original filename - improved regex to handle edge cases
+        // Look for content after the closing parenthesis
+        if (emailMatch) {
+            const afterEmail = fileName.substring(fileName.indexOf(emailMatch[0]) + emailMatch[0].length);
+            // Remove any leading non-alphanumeric characters except dots and spaces
+            originalFileName = afterEmail.replace(/^[^\w\s.]+/, '').trim();
+            if (originalFileName) {
+                logMessage(`📄 Found original filename: ${originalFileName}`);
+            } else {
+                // Fallback: try to extract from the end
+                const fallbackMatch = fileName.match(/[^)]*([^)]+\.[a-zA-Z]{2,4})$/);
+                if (fallbackMatch) {
+                    originalFileName = fallbackMatch[1].trim();
+                    logMessage(`📄 Fallback original filename: ${originalFileName}`);
+                } else {
+                    originalFileName = fileName; // Use full filename as fallback
+                }
+            }
+        } else {
+            // No email found, try different approach
+            const fileExtMatch = fileName.match(/([^/\\:*?"<>|]+\.[a-zA-Z]{2,4})$/);
+            if (fileExtMatch) {
+                originalFileName = fileExtMatch[1];
+                logMessage(`📄 Extracted by extension: ${originalFileName}`);
+            }
         }
         
         return {
             submissionDate: submissionTime || 'Unknown',
             senderEmail: senderEmail || 'Unknown',
-            originalFileName: originalFileName
+            originalFileName: originalFileName || fileName
         };
         
     } catch (error) {
