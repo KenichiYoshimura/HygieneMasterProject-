@@ -8,10 +8,15 @@ const SHAREPOINT_CLIENT_SECRET = process.env.SHAREPOINT_CLIENT_SECRET;
 const SHAREPOINT_TENANT_ID = process.env.SHAREPOINT_TENANT_ID;
 const SHAREPOINT_DOCUMENT_LIBRARY = process.env.SHAREPOINT_DOCUMENT_LIBRARY || 'Documents';
 
-// Get access token for SharePoint API
+// Extract site info from URL for Graph API
+const siteUrl = new URL(SHAREPOINT_SITE_URL);
+const hostname = siteUrl.hostname; // yysolutions.sharepoint.com
+const sitePath = siteUrl.pathname; // /sites/ATEMS
+
+// Get access token for Microsoft Graph API
 async function getSharePointAccessToken(context) {
     try {
-        logMessage(`🔐 Getting SharePoint access token for tenant: ${SHAREPOINT_TENANT_ID}`, context);
+        logMessage(`🔐 Getting Microsoft Graph access token for tenant: ${SHAREPOINT_TENANT_ID}`, context);
         
         const tokenUrl = `https://login.microsoftonline.com/${SHAREPOINT_TENANT_ID}/oauth2/v2.0/token`;
         logMessage(`🔗 Token URL: ${tokenUrl}`, context);
@@ -19,10 +24,10 @@ async function getSharePointAccessToken(context) {
         const params = new URLSearchParams();
         params.append('client_id', SHAREPOINT_CLIENT_ID);
         params.append('client_secret', SHAREPOINT_CLIENT_SECRET);
-        params.append('scope', `${SHAREPOINT_SITE_URL}/.default`);
+        params.append('scope', 'https://graph.microsoft.com/.default'); // Changed to Graph API scope
         params.append('grant_type', 'client_credentials');
         
-        logMessage(`📋 Requesting token with scope: ${SHAREPOINT_SITE_URL}/.default`, context);
+        logMessage(`📋 Requesting token with Microsoft Graph scope`, context);
 
         const response = await axios.post(tokenUrl, params, {
             headers: {
@@ -30,237 +35,173 @@ async function getSharePointAccessToken(context) {
             }
         });
 
-        logMessage(`✅ Access token obtained successfully`, context);
+        logMessage(`✅ Microsoft Graph access token obtained successfully`, context);
         return response.data.access_token;
     } catch (error) {
-        logMessage(`❌ SharePoint authentication failed: ${error.message}`, context);
+        logMessage(`❌ Microsoft Graph authentication failed: ${error.message}`, context);
         if (error.response) {
             logMessage(`❌ Response status: ${error.response.status}`, context);
             logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
         }
-        handleError(error, 'SharePoint Authentication', context);
+        handleError(error, 'Microsoft Graph Authentication', context);
         throw error;
     }
 }
 
-// Upload JSON report to SharePoint
+// Upload JSON report to SharePoint using Microsoft Graph API
 async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
     try {
-        logMessage(`📤 Starting JSON upload to SharePoint: ${fileName}`, context);
+        logMessage(`📤 Starting JSON upload via Microsoft Graph: ${fileName}`, context);
         logMessage(`📁 Target folder: ${folderPath}`, context);
         
-        logMessage(`🔐 Getting access token...`, context);
         const accessToken = await getSharePointAccessToken(context);
-        logMessage(`✅ Access token received`, context);
         
-        logMessage(`📝 Converting JSON data to buffer...`, context);
         const jsonContent = JSON.stringify(jsonData, null, 2);
         const buffer = Buffer.from(jsonContent, 'utf8');
         logMessage(`📊 JSON buffer size: ${buffer.length} bytes`, context);
         
-        const uploadUrl = `${SHAREPOINT_SITE_URL}/_api/web/GetFolderByServerRelativeUrl('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')/Files/Add(url='${fileName}',overwrite=true)`;
-        logMessage(`🔗 Upload URL: ${uploadUrl}`, context);
+        // Microsoft Graph API endpoint for file upload
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 Graph Upload URL: ${graphUploadUrl}`, context);
         
-        logMessage(`📤 Sending request to SharePoint...`, context);
-        const response = await axios.post(uploadUrl, buffer, {
+        logMessage(`📤 Sending request to Microsoft Graph...`, context);
+        const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json;odata=verbose',
                 'Content-Type': 'application/json',
-                'Content-Length': buffer.length
-            },
-            timeout: 30000 // 30 second timeout
-        });
-
-        logMessage(`✅ JSON uploaded to SharePoint successfully: ${fileName}`, context);
-        logMessage(`📊 Response status: ${response.status}`, context);
-        return response.data;
-    } catch (error) {
-        logMessage(`❌ JSON upload failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
-        if (error.response) {
-            logMessage(`❌ Response status: ${error.response.status}`, context);
-            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-        }
-        if (error.code) {
-            logMessage(`❌ Error code: ${error.code}`, context);
-        }
-        handleError(error, 'SharePoint JSON Upload', context);
-        throw error;
-    }
-}
-
-// Upload PDF report to SharePoint
-async function uploadPdfToSharePoint(pdfContent, fileName, folderPath, context) {
-    try {
-        logMessage(`📤 Starting PDF upload to SharePoint: ${fileName}`, context);
-        
-        logMessage(`🔐 Getting access token for PDF upload...`, context);
-        const accessToken = await getSharePointAccessToken(context);
-        logMessage(`✅ Access token received for PDF upload`, context);
-        
-        // Convert HTML to PDF buffer if needed (requires puppeteer)
-        let pdfBuffer;
-        if (typeof pdfContent === 'string') {
-            logMessage(`🔄 Converting HTML to PDF using Puppeteer...`, context);
-            // If pdfContent is HTML string, convert to PDF
-            const puppeteer = require('puppeteer');
-            const browser = await puppeteer.launch({ headless: true });
-            const page = await browser.newPage();
-            await page.setContent(pdfContent, { waitUntil: 'networkidle0' });
-            pdfBuffer = await page.pdf({
-                format: 'A4',
-                printBackground: true,
-                margin: { top: '20mm', bottom: '20mm', left: '10mm', right: '10mm' }
-            });
-            await browser.close();
-            logMessage(`✅ PDF generated, size: ${pdfBuffer.length} bytes`, context);
-        } else {
-            pdfBuffer = pdfContent;
-            logMessage(`📄 Using provided PDF buffer, size: ${pdfBuffer.length} bytes`, context);
-        }
-        
-        const uploadUrl = `${SHAREPOINT_SITE_URL}/_api/web/GetFolderByServerRelativeUrl('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')/Files/Add(url='${fileName}',overwrite=true)`;
-        logMessage(`🔗 PDF Upload URL: ${uploadUrl}`, context);
-        
-        logMessage(`📤 Sending PDF to SharePoint...`, context);
-        const response = await axios.post(uploadUrl, pdfBuffer, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json;odata=verbose',
-                'Content-Type': 'application/pdf',
-                'Content-Length': pdfBuffer.length
-            },
-            timeout: 60000 // 60 second timeout for PDF
-        });
-
-        logMessage(`✅ PDF uploaded to SharePoint successfully: ${fileName}`, context);
-        return response.data;
-    } catch (error) {
-        logMessage(`❌ PDF upload failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
-        if (error.response) {
-            logMessage(`❌ Response status: ${error.response.status}`, context);
-            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-        }
-        handleError(error, 'SharePoint PDF Upload', context);
-        throw error;
-    }
-}
-
-// Upload original document to SharePoint
-async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folderPath, context) {
-    try {
-        logMessage(`📤 Starting original document upload to SharePoint: ${fileName}`, context);
-        
-        logMessage(`🔐 Getting access token for original document...`, context);
-        const accessToken = await getSharePointAccessToken(context);
-        logMessage(`✅ Access token received for original document`, context);
-        
-        logMessage(`📄 Converting base64 to buffer...`, context);
-        const buffer = Buffer.from(base64Content, 'base64');
-        logMessage(`📊 Original document buffer size: ${buffer.length} bytes`, context);
-        
-        const uploadUrl = `${SHAREPOINT_SITE_URL}/_api/web/GetFolderByServerRelativeUrl('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')/Files/Add(url='${fileName}',overwrite=true)`;
-        logMessage(`🔗 Original document Upload URL: ${uploadUrl}`, context);
-        
-        logMessage(`📤 Sending original document to SharePoint...`, context);
-        const response = await axios.post(uploadUrl, buffer, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json;odata=verbose',
-                'Content-Length': buffer.length
-            },
-            timeout: 60000 // 60 second timeout
-        });
-
-        logMessage(`✅ Original document uploaded to SharePoint successfully: ${fileName}`, context);
-        return response.data;
-    } catch (error) {
-        logMessage(`❌ Original document upload failed for: ${fileName}`, context);
-        logMessage(`❌ Error message: ${error.message}`, context);
-        if (error.response) {
-            logMessage(`❌ Response status: ${error.response.status}`, context);
-            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-        }
-        handleError(error, 'SharePoint Original Document Upload', context);
-        throw error;
-    }
-}
-
-// Upload text report to SharePoint
-async function uploadTextToSharePoint(textContent, fileName, folderPath, context) {
-    try {
-        logMessage(`📤 Starting text report upload to SharePoint: ${fileName}`, context);
-        
-        logMessage(`🔐 Getting access token for text upload...`, context);
-        const accessToken = await getSharePointAccessToken(context);
-        logMessage(`✅ Access token received for text upload`, context);
-        
-        const buffer = Buffer.from(textContent, 'utf8');
-        logMessage(`📄 Text buffer size: ${buffer.length} bytes`, context);
-        
-        const uploadUrl = `${SHAREPOINT_SITE_URL}/_api/web/GetFolderByServerRelativeUrl('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')/Files/Add(url='${fileName}',overwrite=true)`;
-        logMessage(`🔗 Text Upload URL: ${uploadUrl}`, context);
-        
-        logMessage(`📤 Sending text to SharePoint...`, context);
-        const response = await axios.post(uploadUrl, buffer, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json;odata=verbose',
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Content-Length': buffer.length
             },
             timeout: 30000
         });
 
-        logMessage(`✅ Text report uploaded to SharePoint successfully: ${fileName}`, context);
+        logMessage(`✅ JSON uploaded via Microsoft Graph successfully: ${fileName}`, context);
+        logMessage(`📊 Response status: ${response.status}`, context);
         return response.data;
     } catch (error) {
-        logMessage(`❌ Text upload failed for: ${fileName}`, context);
+        logMessage(`❌ JSON upload via Graph failed for: ${fileName}`, context);
         logMessage(`❌ Error message: ${error.message}`, context);
         if (error.response) {
             logMessage(`❌ Response status: ${error.response.status}`, context);
             logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
         }
-        handleError(error, 'SharePoint Text Upload', context);
+        handleError(error, 'Microsoft Graph JSON Upload', context);
         throw error;
     }
 }
 
-// Create SharePoint folder if it doesn't exist
-async function ensureSharePointFolder(folderPath, context) {
+// Upload text report to SharePoint using Microsoft Graph API
+async function uploadTextToSharePoint(textContent, fileName, folderPath, context) {
     try {
-        logMessage(`📁 Ensuring SharePoint folder exists: ${folderPath}`, context);
+        logMessage(`📤 Starting text upload via Microsoft Graph: ${fileName}`, context);
         
-        logMessage(`🔐 Getting access token for folder creation...`, context);
         const accessToken = await getSharePointAccessToken(context);
-        logMessage(`✅ Access token received for folder creation`, context);
+        const buffer = Buffer.from(textContent, 'utf8');
+        logMessage(`📄 Text buffer size: ${buffer.length} bytes`, context);
         
-        const folderUrl = `${SHAREPOINT_SITE_URL}/_api/web/folders/add('${SHAREPOINT_DOCUMENT_LIBRARY}/${folderPath}')`;
-        logMessage(`🔗 Folder creation URL: ${folderUrl}`, context);
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 Graph Text Upload URL: ${graphUploadUrl}`, context);
         
-        logMessage(`📁 Creating folder...`, context);
-        await axios.post(folderUrl, {}, {
+        const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json;odata=verbose',
-                'Content-Type': 'application/json'
-            }
+                'Content-Type': 'text/plain; charset=utf-8',
+            },
+            timeout: 30000
         });
 
-        logMessage(`✅ SharePoint folder created/ensured: ${folderPath}`, context);
+        logMessage(`✅ Text uploaded via Microsoft Graph successfully: ${fileName}`, context);
+        return response.data;
     } catch (error) {
-        if (error.response && error.response.status === 409) {
-            logMessage(`📁 Folder already exists: ${folderPath}`, context);
-        } else {
-            logMessage(`❌ Folder creation failed: ${error.message}`, context);
-            if (error.response) {
-                logMessage(`❌ Response status: ${error.response.status}`, context);
-                logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
-            }
-            handleError(error, 'SharePoint Folder Creation', context);
+        logMessage(`❌ Text upload via Graph failed for: ${fileName}`, context);
+        logMessage(`❌ Error message: ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
         }
+        handleError(error, 'Microsoft Graph Text Upload', context);
+        throw error;
+    }
+}
+
+// Upload original document to SharePoint using Microsoft Graph API
+async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folderPath, context) {
+    try {
+        logMessage(`📤 Starting original document upload via Microsoft Graph: ${fileName}`, context);
+        
+        const accessToken = await getSharePointAccessToken(context);
+        const buffer = Buffer.from(base64Content, 'base64');
+        logMessage(`📊 Original document buffer size: ${buffer.length} bytes`, context);
+        
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 Graph Original Document Upload URL: ${graphUploadUrl}`, context);
+        
+        const response = await axios.put(graphUploadUrl, buffer, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/octet-stream',
+            },
+            timeout: 60000
+        });
+
+        logMessage(`✅ Original document uploaded via Microsoft Graph successfully: ${fileName}`, context);
+        return response.data;
+    } catch (error) {
+        logMessage(`❌ Original document upload via Graph failed for: ${fileName}`, context);
+        logMessage(`❌ Error message: ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
+        handleError(error, 'Microsoft Graph Original Document Upload', context);
+        throw error;
+    }
+}
+
+// Create SharePoint folder using Microsoft Graph API
+async function ensureSharePointFolder(folderPath, context) {
+    try {
+        logMessage(`📁 Ensuring SharePoint folder exists via Graph: ${folderPath}`, context);
+        
+        const accessToken = await getSharePointAccessToken(context);
+        
+        // Create nested folders one by one
+        const folderParts = folderPath.split('/').filter(part => part);
+        let currentPath = '';
+        
+        for (const folderName of folderParts) {
+            currentPath += `/${folderName}`;
+            
+            try {
+                const folderCreateUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root${currentPath.substring(0, currentPath.lastIndexOf('/'))}:/children`;
+                
+                await axios.post(folderCreateUrl, {
+                    name: folderName,
+                    folder: {}
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                logMessage(`📁 Created folder: ${currentPath}`, context);
+            } catch (folderError) {
+                if (folderError.response && folderError.response.status === 409) {
+                    logMessage(`📁 Folder already exists: ${currentPath}`, context);
+                } else {
+                    logMessage(`⚠️ Could not create folder ${currentPath}: ${folderError.message}`, context);
+                }
+            }
+        }
+        
+        logMessage(`✅ SharePoint folder structure ensured: ${folderPath}`, context);
+    } catch (error) {
+        logMessage(`❌ Folder creation via Graph failed: ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
+        // Don't throw error for folder creation failures
+        logMessage(`⚠️ Continuing without folder creation...`, context);
     }
 }
 
