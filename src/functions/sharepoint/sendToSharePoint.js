@@ -137,90 +137,74 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
     }
 }
 
-// Create SharePoint folder using Microsoft Graph API (FIXED VERSION)
 async function ensureSharePointFolder(folderPath, context) {
     try {
         logMessage(`📁 Ensuring SharePoint folder exists via Graph: ${folderPath}`, context);
-        
+
         const accessToken = await getSharePointAccessToken(context);
-        
-        // Split the folder path into parts
+        const siteUrl = new URL(SHAREPOINT_SITE_URL);
+        const hostname = siteUrl.hostname;
+        const sitePath = siteUrl.pathname;
+
+        // Step 1: Get siteId
+        const siteResponse = await axios.get(`https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`
+            }
+        });
+        const siteId = siteResponse.data.id;
+        logMessage(`📋 Site ID: ${siteId}`, context);
+
+        // Step 2: Create folder structure recursively
         const folderParts = folderPath.split('/').filter(part => part);
-        logMessage(`📁 Folder parts to create: ${folderParts.join(' > ')}`, context);
-        
         let currentPath = '';
-        
-        for (let i = 0; i < folderParts.length; i++) {
-            const folderName = folderParts[i];
-            const parentPath = currentPath || '/'; // Use root if no parent
+
+        for (const folderName of folderParts) {
             currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-            
+
+            // Check if folder exists
+            const checkUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${currentPath}`;
             try {
-                logMessage(`📁 Creating folder '${folderName}' in '${parentPath}'`, context);
-                
-                // Get the parent folder first, then create child
-                let folderCreateUrl;
-                if (parentPath === '/') {
-                    // Creating in root
-                    folderCreateUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/children`;
-                } else {
-                    // Creating in subdirectory
-                    folderCreateUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${parentPath}:/children`;
-                }
-                
-                logMessage(`📁 Folder create URL: ${folderCreateUrl}`, context);
-                
-                const response = await axios.post(folderCreateUrl, {
-                    name: folderName,
-                    folder: {},
-                    "@microsoft.graph.conflictBehavior": "rename"
-                }, {
+                await axios.get(checkUrl, {
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
+                        Authorization: `Bearer ${accessToken}`
                     }
                 });
-                
-                logMessage(`✅ Created folder: ${currentPath}`, context);
-                
-            } catch (folderError) {
-                if (folderError.response && folderError.response.status === 409) {
-                    logMessage(`📁 Folder already exists: ${currentPath}`, context);
-                } else if (folderError.response && folderError.response.status === 404) {
-                    logMessage(`❌ Parent folder not found for: ${currentPath}`, context);
-                    logMessage(`❌ Error details: ${JSON.stringify(folderError.response.data)}`, context);
-                    throw folderError; // Stop if parent doesn't exist
+                logMessage(`📁 Folder already exists: ${currentPath}`, context);
+            } catch (checkError) {
+                if (checkError.response && checkError.response.status === 404) {
+                    // Create folder
+                    const createUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${currentPath.substring(0, currentPath.lastIndexOf('/')) || ''}/children`;
+                    logMessage(`📁 Creating folder '${folderName}' at '${createUrl}'`, context);
+
+                    await axios.post(createUrl, {
+                        name: folderName,
+                        folder: {},
+                        "@microsoft.graph.conflictBehavior": "rename"
+                    }, {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    logMessage(`✅ Created folder: ${currentPath}`, context);
                 } else {
-                    logMessage(`⚠️ Could not create folder ${currentPath}: ${folderError.message}`, context);
-                    if (folderError.response) {
-                        logMessage(`⚠️ Folder error response: ${JSON.stringify(folderError.response.data)}`, context);
-                    }
+                    logMessage(`❌ Error checking folder: ${currentPath}`, context);
+                    throw checkError;
                 }
             }
         }
-        
+
         logMessage(`✅ SharePoint folder structure ensured: ${folderPath}`, context);
-        
-        // Verify the folder exists by trying to get it
-        try {
-            const verifyUrl = `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}:/drives/root:/${folderPath}`;
-            await axios.get(verifyUrl, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`
-                }
-            });
-            logMessage(`✅ Verified folder exists: ${folderPath}`, context);
-        } catch (verifyError) {
-            logMessage(`⚠️ Could not verify folder: ${folderPath}`, context);
-        }
-        
+
     } catch (error) {
         logMessage(`❌ Folder creation via Graph failed: ${error.message}`, context);
         if (error.response) {
             logMessage(`❌ Response status: ${error.response.status}`, context);
             logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
         }
-        throw error; // Now throw the error so upload doesn't proceed
+        throw error;
     }
 }
 
