@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function prepareGeneralManagementReport(extractedRows, categories, context, base64BinFile, originalFileName) {
-    logMessage("🚀 prepareGeneralManagementReport() called!!", context);
+    logMessage("🚀 prepareGeneralManagementReport() called", context);
     
     try {
         // Generate structured JSON data
@@ -42,7 +42,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-        const location = extractedRows[0]?.store || 'unknown';
+        const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'unknown';
         const year = extractedRows[0]?.year || new Date().getFullYear();
         const month = extractedRows[0]?.month || new Date().getMonth() + 1;
         
@@ -82,37 +82,106 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
 }
 
 function generateJsonReport(extractedRows, categories, originalFileName) {
+    /*
+    Monday General Management Form Column Mapping:
+    ID: name, Title: Name, Type: name
+    ID: date4, Title: 日付, Type: date
+    ID: text_mkv0z6d, Title: 店舗, Type: text
+    ID: color_mkv02tqg, Title: Category1, Type: status
+    ID: color_mkv0yb6g, Title: Category2, Type: status
+    ID: color_mkv06e9z, Title: Category3, Type: status
+    ID: color_mkv0x9mr, Title: Category4, Type: status
+    ID: color_mkv0df43, Title: Category5, Type: status
+    ID: color_mkv5fa8m, Title: Category6, Type: status
+    ID: color_mkv59ent, Title: Category7, Type: status
+    ID: text_mkv0etfg, Title: 特記事項, Type: text
+    ID: color_mkv0xnn4, Title: 確認者, Type: status
+    ID: file_mkv1kpsc, Title: 紙の帳票, Type: file
+    */
+    
+    const categoryColumnMapping = {
+        0: 'color_mkv02tqg', // Category1
+        1: 'color_mkv0yb6g', // Category2
+        2: 'color_mkv06e9z', // Category3
+        3: 'color_mkv0x9mr', // Category4
+        4: 'color_mkv0df43', // Category5
+        5: 'color_mkv5fa8m', // Category6
+        6: 'color_mkv59ent'  // Category7
+    };
+
     const reportData = {
         metadata: {
             reportType: "general_management_form",
             generatedAt: new Date().toISOString(),
             originalFileName: originalFileName,
-            version: "1.0"
+            version: "1.0",
+            mondayColumnMapping: {
+                name: "name",
+                date: "date4", 
+                location: "text_mkv0z6d",
+                comments: "text_mkv0etfg",
+                approver: "color_mkv0xnn4",
+                originalFile: "file_mkv1kpsc",
+                categories: categoryColumnMapping
+            }
         },
         formInfo: {
-            location: extractedRows[0]?.store || "unknown",
+            location: extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || "unknown",
             year: parseInt(extractedRows[0]?.year) || new Date().getFullYear(),
             month: parseInt(extractedRows[0]?.month) || new Date().getMonth() + 1,
             totalDays: extractedRows.length
         },
-        categories: categories.map((cat, index) => ({
+        categories: categories.map((category, index) => ({
             id: index + 1,
-            name: cat,
-            key: `cat${index + 1}`
+            name: category,
+            mondayColumnId: categoryColumnMapping[index] || `category${index + 1}`,
+            key: `category${index + 1}`
         })),
-        dailyData: extractedRows.map(row => ({
-            day: parseInt(row.day),
-            date: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
-            categories: categories.map((_, index) => ({
-                categoryId: index + 1,
-                categoryName: categories[index],
-                status: row[`cat${index + 1}Status`] || "unknown",
-                statusCode: getStatusCode(row[`cat${index + 1}Status`])
-            })),
-            comment: row.comment && row.comment !== "not found" ? row.comment : null,
-            approverStatus: row.approverStatus,
-            isApproved: row.approverStatus === "選択済み"
-        })),
+        dailyData: extractedRows.map(row => {
+            const dailyEntry = {
+                // Basic info using Monday column structure
+                name: row.name || `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
+                day: parseInt(row.day),
+                date: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`,
+                date4: `${row.year}-${String(row.month).padStart(2, '0')}-${String(row.day).padStart(2, '0')}`, // Monday date format
+                text_mkv0z6d: row.text_mkv0z6d || row.store || "unknown", // 店舗
+                text_mkv0etfg: row.text_mkv0etfg || row.comment || null, // 特記事項
+                color_mkv0xnn4: row.color_mkv0xnn4 || row.approverStatus || null, // 確認者
+                
+                // Category statuses using Monday column IDs
+                categoryStatuses: categories.map((_, index) => {
+                    const mondayColumnId = categoryColumnMapping[index];
+                    const status = row[mondayColumnId] || row[`category${index + 1}Status`] || "unknown";
+                    
+                    return {
+                        categoryId: index + 1,
+                        categoryName: categories[index],
+                        mondayColumnId: mondayColumnId,
+                        status: status,
+                        statusCode: getStatusCode(status),
+                        rawValue: row[mondayColumnId] || row[`category${index + 1}Status`]
+                    };
+                }),
+                
+                // Include raw Monday column data for reference
+                mondayColumnData: {
+                    color_mkv02tqg: row.color_mkv02tqg,
+                    color_mkv0yb6g: row.color_mkv0yb6g,
+                    color_mkv06e9z: row.color_mkv06e9z,
+                    color_mkv0x9mr: row.color_mkv0x9mr,
+                    color_mkv0df43: row.color_mkv0df43,
+                    color_mkv5fa8m: row.color_mkv5fa8m,
+                    color_mkv59ent: row.color_mkv59ent
+                },
+                
+                // Legacy format for compatibility
+                comment: row.text_mkv0etfg || row.comment || null,
+                approverStatus: row.color_mkv0xnn4 || row.approverStatus || null,
+                isApproved: (row.color_mkv0xnn4 || row.approverStatus) === "選択済み"
+            };
+            
+            return dailyEntry;
+        }),
         summary: generateSummaryData(extractedRows, categories),
         analytics: generateAnalyticsData(extractedRows, categories)
     };
@@ -120,20 +189,19 @@ function generateJsonReport(extractedRows, categories, originalFileName) {
     return reportData;
 }
 
-// Changed from generatePdfReport to generateTextReport
 function generateTextReport(extractedRows, categories, originalFileName) {
     const reportDate = new Date().toLocaleDateString('ja-JP', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
     });
-    const location = extractedRows[0]?.store || 'Unknown Location';
+    const location = extractedRows[0]?.text_mkv0z6d || extractedRows[0]?.store || 'Unknown Location';
     const year = extractedRows[0]?.year || new Date().getFullYear();
     const month = extractedRows[0]?.month || new Date().getMonth() + 1;
     
     let textReport = `
 ========================================
-📋 一般管理フォーム 週間レポート
+📋 一般衛生管理フォーム 週間レポート
 ========================================
 
 📋 基本情報:
@@ -142,8 +210,8 @@ function generateTextReport(extractedRows, categories, originalFileName) {
   作成日: ${reportDate}
   元ファイル: ${originalFileName}
 
-📊 管理項目:
-${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
+📊 管理カテゴリ:
+${categories.map((category, index) => `  Category${index + 1}: ${category}`).join('\n')}
 
 ========================================
 📅 日別管理状況
@@ -154,26 +222,42 @@ ${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
     // Header row
     textReport += '日付    ';
     categories.forEach((_, index) => {
-        textReport += `項目${index + 1}  `;
+        textReport += `Cat${index + 1}  `;
     });
     textReport += '承認  コメント\n';
     textReport += ''.padEnd(80, '-') + '\n';
 
-    // Data rows
+    // Data rows using Monday column structure
     extractedRows.forEach(row => {
         textReport += `${String(row.day).padEnd(6)}`;
         
+        // Category statuses using Monday column mapping
+        const categoryColumnMapping = {
+            0: 'color_mkv02tqg', // Category1
+            1: 'color_mkv0yb6g', // Category2
+            2: 'color_mkv06e9z', // Category3
+            3: 'color_mkv0x9mr', // Category4
+            4: 'color_mkv0df43', // Category5
+            5: 'color_mkv5fa8m', // Category6
+            6: 'color_mkv59ent'  // Category7
+        };
+        
         categories.forEach((_, index) => {
-            const status = row[`cat${index + 1}Status`] || '—';
+            const mondayColumnId = categoryColumnMapping[index];
+            const status = row[mondayColumnId] || row[`category${index + 1}Status`] || '—';
             const displayStatus = status === '良' ? '✓' : status === '否' ? '✗' : '?';
             textReport += `${displayStatus.padEnd(6)}`;
         });
         
-        const approver = row.approverStatus === '選択済み' ? '✓' : '—';
+        const approver = (row.color_mkv0xnn4 || row.approverStatus) === '選択済み' ? '✓' : '—';
         textReport += `${approver.padEnd(4)}`;
         
-        const comment = row.comment && row.comment !== 'not found' ? row.comment : '—';
-        textReport += `${comment.substring(0, 30)}\n`;
+        const comment = row.text_mkv0etfg || row.comment || '—';
+        if (comment && comment !== 'not found') {
+            textReport += `${comment.substring(0, 30)}\n`;
+        } else {
+            textReport += '—\n';
+        }
     });
 
     // Summary section
@@ -190,34 +274,19 @@ ${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
   • 承認済み: ${summary.approvedDays}日 (${summary.approvalRate}%)
   • コメント有り: ${summary.daysWithComments}日 (${summary.commentRate}%)
 
-📋 項目別統計:
+🚨 重要度レベル:
 `;
 
-    analytics.categoryPerformance.forEach(cat => {
-        textReport += `  • ${cat.categoryName}: 良${cat.okCount}件 / 否${cat.ngCount}件 (成功率: ${cat.successRate}%)\n`;
-    });
+    const criticalCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'critical');
+    const highCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'high');
 
-    const riskCategories = analytics.categoryPerformance.filter(cat => cat.riskLevel === 'high');
-    
-    if (riskCategories.length > 0) {
-        textReport += `
-⚠️ 注意が必要な項目:
-`;
-        riskCategories.forEach(cat => {
+    textReport += `  • 緊急対応必要: ${criticalCategories.length}カテゴリ\n`;
+    textReport += `  • 要注意: ${highCategories.length}カテゴリ\n\n`;
+
+    if (criticalCategories.length > 0) {
+        textReport += `⚠️ 問題発生カテゴリ:\n`;
+        criticalCategories.forEach(cat => {
             textReport += `  • ${cat.categoryName}: ${cat.ngCount}件の問題 (成功率: ${cat.successRate}%)\n`;
-        });
-    } else {
-        textReport += `
-✅ すべての項目が良好な状態です
-`;
-    }
-
-    if (analytics.issuesDays.length > 0) {
-        textReport += `
-📅 問題発生日:
-`;
-        analytics.issuesDays.forEach(day => {
-            textReport += `  • ${day.day}日: ${day.issueCount}件の問題 (${day.issues.join(', ')})\n`;
         });
     }
 
@@ -233,8 +302,13 @@ ${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
 
 function generateSummaryData(extractedRows, categories) {
     const totalDays = extractedRows.length;
-    const approvedDays = extractedRows.filter(row => row.approverStatus === '選択済み').length;
-    const daysWithComments = extractedRows.filter(row => row.comment && row.comment !== 'not found').length;
+    const approvedDays = extractedRows.filter(row => 
+        (row.color_mkv0xnn4 || row.approverStatus) === '選択済み'
+    ).length;
+    const daysWithComments = extractedRows.filter(row => 
+        (row.text_mkv0etfg || row.comment) && 
+        (row.text_mkv0etfg || row.comment) !== 'not found'
+    ).length;
     
     return {
         totalDays,
@@ -248,50 +322,40 @@ function generateSummaryData(extractedRows, categories) {
 function generateAnalyticsData(extractedRows, categories) {
     const analytics = {
         categoryPerformance: [],
-        trendData: [],
-        issuesDays: []
+        criticalDays: []
     };
     
-    // Category performance analysis
+    // Category performance analysis using Monday column mapping
+    const categoryColumnMapping = {
+        0: 'color_mkv02tqg', // Category1
+        1: 'color_mkv0yb6g', // Category2
+        2: 'color_mkv06e9z', // Category3
+        3: 'color_mkv0x9mr', // Category4
+        4: 'color_mkv0df43', // Category5
+        5: 'color_mkv5fa8m', // Category6
+        6: 'color_mkv59ent'  // Category7
+    };
+    
     categories.forEach((category, index) => {
-        const statusKey = `cat${index + 1}Status`;
-        const okCount = extractedRows.filter(row => row[statusKey] === '良').length;
-        const ngCount = extractedRows.filter(row => row[statusKey] === '否').length;
-        const unknownCount = extractedRows.filter(row => !row[statusKey] || row[statusKey] === 'not found').length;
+        const mondayColumnId = categoryColumnMapping[index];
+        const legacyKey = `category${index + 1}Status`;
+        
+        const okCount = extractedRows.filter(row => 
+            (row[mondayColumnId] || row[legacyKey]) === '良'
+        ).length;
+        const ngCount = extractedRows.filter(row => 
+            (row[mondayColumnId] || row[legacyKey]) === '否'
+        ).length;
         
         analytics.categoryPerformance.push({
             categoryId: index + 1,
             categoryName: category,
+            mondayColumnId: mondayColumnId,
             okCount,
             ngCount,
-            unknownCount,
-            totalCount: extractedRows.length,
             successRate: extractedRows.length > 0 ? (okCount / extractedRows.length * 100).toFixed(1) : 0,
-            riskLevel: ngCount > extractedRows.length * 0.3 ? "high" : ngCount > 0 ? "medium" : "low"
+            riskLevel: ngCount > extractedRows.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
         });
-    });
-    
-    // Days with issues
-    extractedRows.forEach(row => {
-        let issueCount = 0;
-        let issues = [];
-        
-        categories.forEach((_, index) => {
-            if (row[`cat${index + 1}Status`] === '否') {
-                issueCount++;
-                issues.push(`項目${index + 1}`);
-            }
-        });
-        
-        if (issueCount > 0) {
-            analytics.issuesDays.push({
-                day: row.day,
-                issueCount,
-                issues,
-                hasComment: !!(row.comment && row.comment !== 'not found'),
-                isApproved: row.approverStatus === '選択済み'
-            });
-        }
     });
     
     return analytics;
