@@ -234,7 +234,7 @@ ${categories.map((cat, index) => `  項目${index + 1}: ${cat}`).join('\n')}
 function generateSummaryData(extractedRows, categories) {
     const totalDays = extractedRows.length;
     const approvedDays = extractedRows.filter(row => row.approverStatus === '選択済み').length;
-    const daysWithComments = extractedRows.filter row => row.comment && row.comment !== 'not found').length;
+    const daysWithComments = extractedRows.filter(row => row.comment && row.comment !== 'not found').length;
     
     return {
         totalDays,
