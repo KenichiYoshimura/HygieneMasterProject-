@@ -88,7 +88,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, base64BinFile, 
         
         // Use environment variables for folder structure
         const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
-        const folderPath = `${basePath}/GeneralManagement/${year}/${String(month).padStart(2, '0')}/${location}`;
+        const folderPath = `${basePath}/一般衛生管理の実施記録/${year}/${String(month).padStart(2, '0')}/${location}`;
         
         logMessage(`📁 Using configured base path: ${basePath}`, context);
         logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
@@ -132,7 +132,7 @@ function generateJsonReport(rowDataArray, categories, originalFileName, context)
     
     const reportData = {
         // Report header (matching TXT exactly)
-        title: "一般管理の実施記録",
+        title: "一般衛生管理の実施記録",
         submissionDate: fileNameParts.submissionDate,
         submitter: fileNameParts.senderEmail,
         originalFileName: fileNameParts.originalFileName,
