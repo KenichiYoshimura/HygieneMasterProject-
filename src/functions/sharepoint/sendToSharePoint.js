@@ -76,7 +76,6 @@ async function getDriveId(context) {
 }
 
 // Upload JSON report to SharePoint using Microsoft Graph API
-// Simplified upload without retry (since folder is created beforehand)
 async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
     try {
         logMessage(`📤 Starting JSON upload: ${fileName}`, context);
@@ -90,12 +89,12 @@ async function uploadJsonToSharePoint(jsonData, fileName, folderPath, context) {
         
         // Use drives API instead of sites path API
         const graphUploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}/${fileName}:/content`;
-        logMessage(`🔗 Upload URL: ${graphUploadUrl}`, context);
+        logMessage(`🔗 JSON Upload URL: ${graphUploadUrl}`, context);
         
         const response = await axios.put(graphUploadUrl, buffer, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
             },
             timeout: 30000
         });
@@ -148,6 +147,42 @@ async function uploadTextToSharePoint(textContent, fileName, folderPath, context
     }
 }
 
+// Upload HTML report to SharePoint using Microsoft Graph API
+async function uploadHtmlToSharePoint(htmlContent, fileName, folderPath, context) {
+    try {
+        logMessage(`📤 Starting HTML upload: ${fileName}`, context);
+        
+        const accessToken = await getSharePointAccessToken(context);
+        const driveId = await getDriveId(context);
+        
+        // FIXED: Use htmlContent instead of textContent
+        const buffer = Buffer.from(htmlContent, 'utf8');
+        logMessage(`📊 HTML buffer size: ${buffer.length} bytes`, context);
+        
+        // Use drives API instead of sites path API
+        const graphUploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}/${fileName}:/content`;
+        logMessage(`🔗 HTML Upload URL: ${graphUploadUrl}`, context);
+        
+        const response = await axios.put(graphUploadUrl, buffer, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'text/html; charset=utf-8',
+            },
+            timeout: 30000
+        });
+
+        logMessage(`✅ HTML uploaded successfully: ${fileName}`, context);
+        return response.data;
+    } catch (error) {
+        logMessage(`❌ HTML upload failed: ${fileName} - ${error.message}`, context);
+        if (error.response) {
+            logMessage(`❌ Response status: ${error.response.status}`, context);
+            logMessage(`❌ Response data: ${JSON.stringify(error.response.data)}`, context);
+        }
+        throw error;
+    }
+}
+
 // Upload original document to SharePoint using Microsoft Graph API
 async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folderPath, context) {
     try {
@@ -168,7 +203,7 @@ async function uploadOriginalDocumentToSharePoint(base64Content, fileName, folde
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/octet-stream',
             },
-            timeout: 60000
+            timeout: 60000 // Longer timeout for larger documents
         });
 
         logMessage(`✅ Original document uploaded successfully: ${fileName}`, context);
@@ -190,7 +225,7 @@ async function ensureSharePointFolder(folderPath, context) {
         const accessToken = await getSharePointAccessToken(context);
         const driveId = await getDriveId(context);
 
-        // Step 3: Create folder structure using drive items API
+        // Create folder structure using drive items API
         const folderParts = folderPath.split('/').filter(part => part);
         let currentItemId = 'root';
 
@@ -263,5 +298,6 @@ module.exports = {
     uploadJsonToSharePoint,
     uploadTextToSharePoint,
     uploadOriginalDocumentToSharePoint,
-    ensureSharePointFolder
+    ensureSharePointFolder,
+    uploadHtmlToSharePoint
 };
