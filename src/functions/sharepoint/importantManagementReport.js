@@ -10,6 +10,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const { analyzeComment } = require('./analytics/sentimentAnalysis');
 
 async function prepareImportantManagementReport(extractedRows, menuItems, context, base64BinFile, originalFileName) {
   logMessage("🚀 prepareImportantManagementReport() called", context);
@@ -55,7 +56,7 @@ async function prepareImportantManagementReport(extractedRows, menuItems, contex
     const textReport = generateTextReport(rowDataArray, menuItems, originalFileName, context);
     logMessage("✅ Text report generated", context);
 
-    const htmlReport = generateHtmlReport(rowDataArray, menuItems, originalFileName, context);
+    const htmlReport = await generateHtmlReport(rowDataArray, menuItems, originalFileName, context);
     logMessage("✅ HTML report generated", context);
 
     // Upload to SharePoint (add HTML upload if needed)
@@ -112,7 +113,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, htmlReport, bas
 }
 
 // --- HTML Generation Function ---
-function generateHtmlReport(rowDataArray, menuItems, originalFileName, context) {
+async function generateHtmlReport(rowDataArray, menuItems, originalFileName, context) {
   const fileNameParts = parseFileName(originalFileName, context);
   const storeName = rowDataArray[0]?.text_mkv0z6d || "Unknown Store";
   const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
@@ -143,6 +144,28 @@ function generateHtmlReport(rowDataArray, menuItems, originalFileName, context) 
       <td>${row.color_mkv0xnn4 || '--'}</td>
     </tr>
   `).join('\n');
+
+  // Collect comments for sentiment analysis
+  const commentRows = rowDataArray
+  .filter(row => row.text_mkv0etfg && row.text_mkv0etfg !== 'not found')
+  .map(row => ({
+    date: row.date4 ? row.date4.split('-')[2] : '--',
+    comment: row.text_mkv0etfg
+  }));
+
+  // 2. Perform sentiment analysis on comments
+  const sentimentResults = await Promise.all(
+  commentRows.map(async ({ date, comment }) => {
+      const result = await analyzeComment(comment);
+      return {
+        date,
+        ...result
+      };
+    })
+  );
+
+  // 3. Generate sentiment report section
+  const sentimentSection = generateSentimentReportTable(sentimentResults);
 
   // Menu NG counts
   const ngCounts = menuDescriptions.map((desc, idx) => {
@@ -226,7 +249,7 @@ function generateHtmlReport(rowDataArray, menuItems, originalFileName, context) 
       </li>
     </ul>
   </div>
-
+  ${sentimentSection}
   <div style="margin-top:2em;">
     このレポートは HygienMaster システムにより自動生成されました<br>
     生成日時: ${new Date().toISOString()}
@@ -571,14 +594,36 @@ function generateAnalyticsData(rowDataArray, menuItems) {
   return analytics;
 }
 
-function getStatusCode(status) {
-  switch (status) {
-    case '良': return 1;
-    case '否': return 0;
-    case '未選択': return -1;
-    case 'エラー': return -2;
-    default: return -1;
-  }
+function generateSentimentReportTable(sentimentResults) {
+  return `
+    <h3>センチメント分析レポート</h3>
+    <table>
+      <tr>
+        <th>日付</th>
+        <th>コメント（原文）</th>
+        <th>検出言語</th>
+        <th>日本語訳</th>
+        <th>分析言語</th>
+        <th>センチメント</th>
+        <th>スコア</th>
+      </tr>
+      ${sentimentResults.map(res => `
+        <tr>
+          <td>${res.date}</td>
+          <td>${res.originalComment}</td>
+          <td>${res.detectedLanguage}</td>
+          <td>${res.japaneseTranslation}</td>
+          <td>${res.sentimentAnalysisLanguage}</td>
+          <td>${res.sentiment}</td>
+          <td>
+            👍 ${res.scores.positive} /
+            😐 ${res.scores.neutral} /
+            👎 ${res.scores.negative}
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
 }
 
 module.exports = {

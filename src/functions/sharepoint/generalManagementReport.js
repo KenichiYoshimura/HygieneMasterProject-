@@ -10,6 +10,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const { analyzeComment } = require('./analytics/sentimentAnalysis');
 
 // Main function
 async function prepareGeneralManagementReport(extractedRows, categories, context, base64BinFile, originalFileName) {
@@ -56,7 +57,7 @@ async function prepareGeneralManagementReport(extractedRows, categories, context
     const textReport = generateTextReport(rowDataArray, categories, originalFileName, context);
     logMessage("✅ Text report generated", context);
 
-    const htmlReport = generateHtmlReport(rowDataArray, categories, originalFileName, context);
+    const htmlReport = await generateHtmlReport(rowDataArray, categories, originalFileName, context);
     logMessage("✅ HTML report generated", context);
 
     // Upload to SharePoint (add HTML upload if needed)
@@ -112,7 +113,7 @@ async function uploadReportsToSharePoint(jsonReport, textReport, htmlReport, bas
 }
 
 // --- HTML Generation Function ---
-function generateHtmlReport(rowDataArray, categories, originalFileName, context) {
+async function generateHtmlReport(rowDataArray, categories, originalFileName, context) {
   // Parse filename for metadata
   const fileNameParts = parseFileName(originalFileName, context);
   const storeName = rowDataArray[0]?.text_mkv0z6d || "Unknown Store";
@@ -147,6 +148,29 @@ function generateHtmlReport(rowDataArray, categories, originalFileName, context)
       <td>${row.color_mkv0xnn4 || '--'}</td>
     </tr>
   `).join('\n');
+
+  // 1. Collects comments for sentiment analysis
+  const commentRows = rowDataArray
+  .filter(row => row.text_mkv0etfg && row.text_mkv0etfg !== 'not found')
+  .map(row => ({
+    date: row.date4 ? row.date4.split('-')[2] : '--',
+    comment: row.text_mkv0etfg
+  }));
+
+
+  // 2. Perform sentiment analysis on comments
+  const sentimentResults = await Promise.all(
+  commentRows.map(async ({ date, comment }) => {
+    const result = await analyzeComment(comment);
+      return {
+        date,
+        ...result
+      };
+    })
+  );
+
+  // 3. Generate the sentiment analysis section
+  const sentimentSection = generateSentimentReportTable(sentimentResults);
 
   // Category summary (NG count per category)
   const ngCounts = categoryDescriptions.map((cat, idx) => {
@@ -215,6 +239,7 @@ function generateHtmlReport(rowDataArray, categories, originalFileName, context)
       </ul>
     </li>
   </ul>
+  ${sentimentSection}
   <h3>管理カテゴリ</h3>
   <table>
     <tr>
@@ -550,12 +575,36 @@ function generateAnalyticsData(extractedRows, categories) {
   return analytics;
 }
 
-function getStatusCode(status) {
-  switch (status) {
-    case '良': return 1;
-    case '否': return 0;
-    default: return -1;
-  }
+function generateSentimentReportTable(sentimentResults) {
+  return `
+    <h3>センチメント分析レポート</h3>
+    <table>
+      <tr>
+        <th>日付</th>
+        <th>コメント（原文）</th>
+        <th>検出言語</th>
+        <th>日本語訳</th>
+        <th>分析言語</th>
+        <th>センチメント</th>
+        <th>スコア</th>
+      </tr>
+      ${sentimentResults.map(res => `
+        <tr>
+          <td>${res.date}</td>
+          <td>${res.originalComment}</td>
+          <td>${res.detectedLanguage}</td>
+          <td>${res.japaneseTranslation}</td>
+          <td>${res.sentimentAnalysisLanguage}</td>
+          <td>${res.sentiment}</td>
+          <td>
+            👍 ${res.scores.positive} /
+            😐 ${res.scores.neutral} /
+            👎 ${res.scores.negative}
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
 }
 
 module.exports = {
