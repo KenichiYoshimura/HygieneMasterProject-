@@ -10,7 +10,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
-const { analyzeComment } = require('./analytics/sentimentAnalysis');
+const { analyzeComment } = require('../analytics/sentimentAnalysis');
 
 // Main function
 async function prepareGeneralManagementReport(extractedRows, categories, context, base64BinFile, originalFileName) {
