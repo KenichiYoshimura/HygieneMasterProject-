@@ -6,7 +6,7 @@ const {
     ensureSharePointFolder,
     uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, getLanguageNameInJapanese, formatInlineConfidenceDetails } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatInlineConfidenceDetails, supportedLanguages } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -67,21 +67,38 @@ async function addSentimentAnalysisToStructuredData(structuredData, context) {
                 logMessage(`😊 Analyzing sentiment for comment: "${record.comment.substring(0, 30)}..."`, context);
                 const sentimentResult = await analyzeComment(record.comment);
                 
-                // Add sentiment data to the record - the sentimentResult already contains the correct logic
+                // Check if the analysis was successful
+                if (sentimentResult.error) {
+                    logMessage(`❌ Sentiment analysis returned error: ${sentimentResult.error}`, context);
+                    record.sentimentAnalysis = {
+                        originalComment: sentimentResult.originalComment,
+                        detectedLanguage: sentimentResult.detectedLanguage,
+                        japaneseTranslation: sentimentResult.japaneseTranslation,
+                        analysisLanguage: sentimentResult.analysisLanguage,
+                        sentiment: sentimentResult.sentiment,
+                        confidenceScores: sentimentResult.confidenceScores,
+                        wasTranslated: sentimentResult.wasTranslated,
+                        error: sentimentResult.error
+                    };
+                    continue;
+                }
+                
+                // Add sentiment data to the record - use the exact structure returned by analyzeComment
                 record.sentimentAnalysis = {
                     originalComment: sentimentResult.originalComment,
                     detectedLanguage: sentimentResult.detectedLanguage,
                     japaneseTranslation: sentimentResult.japaneseTranslation,
-                    analysisLanguage: sentimentResult.sentimentAnalysisLanguage,
+                    analysisLanguage: sentimentResult.analysisLanguage,      // ✅ FIXED: was sentimentAnalysisLanguage
                     sentiment: sentimentResult.sentiment,
-                    confidenceScores: sentimentResult.scores,
+                    confidenceScores: sentimentResult.confidenceScores,      // ✅ FIXED: was scores
                     wasTranslated: sentimentResult.wasTranslated
                 };
                 
+                const confidence = Math.round((sentimentResult.confidenceScores[sentimentResult.sentiment] || 0) * 100);  // ✅ FIXED: was scores
                 const analysisInfo = sentimentResult.wasTranslated 
                     ? `translated from ${sentimentResult.detectedLanguage} to ja`
                     : `analyzed in original language ${sentimentResult.detectedLanguage}`;
-                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence) - ${analysisInfo}`, context);
+                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${confidence}% confidence) - ${analysisInfo}`, context);
                 
             } catch (error) {
                 logMessage(`❌ Sentiment analysis failed for comment: ${error.message}`, context);
@@ -90,9 +107,10 @@ async function addSentimentAnalysisToStructuredData(structuredData, context) {
                     detectedLanguage: 'unknown',
                     japaneseTranslation: null,
                     analysisLanguage: 'unknown',
-                    error: error.message,
-                    sentiment: "unknown",
-                    wasTranslated: false
+                    sentiment: 'unknown',
+                    confidenceScores: { positive: 0, neutral: 0, negative: 0 },
+                    wasTranslated: false,
+                    error: error.message
                 };
             }
         }
@@ -274,14 +292,13 @@ function generateHtmlReport(structuredData, originalFileName, context) {
     const sentimentRows = structuredData.dailyRecords
         .map(record => {
             const day = String(record.day).padStart(2, '0');
-            const recordId = `important-day-${day}`; // Unique ID for important management report
             
             // Check if sentiment analysis exists and was successful
             if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
                 const sentiment = record.sentimentAnalysis;
                 const sentimentClass = `sentiment-${sentiment.sentiment}`;
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
-                const inlineDetails = formatInlineConfidenceDetails(sentiment.confidenceScores, recordId);
+                const inlineDetails = formatInlineConfidenceDetails(sentiment.confidenceScores);  // ✅ FIXED: removed recordId parameter
                 
                 return `
         <tr class="sentiment-row">
@@ -456,14 +473,14 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             <div class="section-header">
                 <h3>🧠 感情分析詳細レポート</h3>
                 <div class="section-description">
-                    「詳細」ボタンをクリックすると、ポジティブ・ニュートラル・ネガティブの詳細スコアが表示されます
+                    各コメントの感情分析結果と詳細スコアを表示します
                 </div>
             </div>
             <div class="section-content">
                 <div class="sentiment-summary">
                     <strong>📊 感情分析結果:</strong> ${totalDaysWithComments}件のコメント中 ${successfulAnalyses}件分析成功${failedAnalyses > 0 ? `、${failedAnalyses}件失敗` : ''}
                     <div class="hint-text">
-                        💡 ヒント: 信頼度欄の「詳細」ボタンで全感情カテゴリのスコアを確認できます
+                        💡 ヒント: 信頼度欄で全感情カテゴリのスコアを確認できます
                     </div>
                 </div>
                 <table>
@@ -475,7 +492,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                             <th>日本語訳</th>
                             <th>分析言語</th>
                             <th>感情判定</th>
-                            <th>信頼度（詳細表示）</th>
+                            <th>信頼度・詳細スコア</th>
                         </tr>
                     </thead>
                     <tbody>

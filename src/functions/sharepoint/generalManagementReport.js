@@ -6,7 +6,7 @@ const {
   ensureSharePointFolder,
   uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, getLanguageNameInJapanese, formatInlineConfidenceDetails } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatInlineConfidenceDetails, supportedLanguages } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -65,36 +65,47 @@ async function addSentimentAnalysisToStructuredData(structuredData, context) {
                 logMessage(`😊 Analyzing sentiment for comment: "${record.comment.substring(0, 30)}..."`, context);
                 const sentimentResult = await analyzeComment(record.comment);
                 
-                // Determine what language was actually used for analysis
-                // If the detected language is supported by sentiment analysis, use original text
-                // Otherwise, use the translated Japanese text
-                const supportedLanguages = ['en', 'ja', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ko']; // Add more as needed
-                const detectedLang = sentimentResult.detectedLanguage;
-                const isLanguageSupported = supportedLanguages.includes(detectedLang);
+                // Check if the analysis was successful
+                if (sentimentResult.error) {
+                    logMessage(`❌ Sentiment analysis returned error: ${sentimentResult.error}`, context);
+                    record.sentimentAnalysis = {
+                        originalComment: sentimentResult.originalComment,
+                        detectedLanguage: sentimentResult.detectedLanguage,
+                        japaneseTranslation: sentimentResult.japaneseTranslation,
+                        analysisLanguage: sentimentResult.analysisLanguage,
+                        sentiment: sentimentResult.sentiment,
+                        confidenceScores: sentimentResult.confidenceScores,
+                        wasTranslated: sentimentResult.wasTranslated,
+                        error: sentimentResult.error
+                    };
+                    continue;
+                }
                 
-                // Add sentiment data to the record
+                // Add sentiment data to the record - use the exact structure returned by analyzeComment
                 record.sentimentAnalysis = {
                     originalComment: sentimentResult.originalComment,
                     detectedLanguage: sentimentResult.detectedLanguage,
-                    japaneseTranslation: isLanguageSupported ? sentimentResult.originalComment : sentimentResult.japaneseTranslation,
-                    analysisLanguage: isLanguageSupported ? sentimentResult.detectedLanguage : 'ja',
+                    japaneseTranslation: sentimentResult.japaneseTranslation,
+                    analysisLanguage: sentimentResult.analysisLanguage,
                     sentiment: sentimentResult.sentiment,
-                    confidenceScores: sentimentResult.scores,
-                    wasTranslated: !isLanguageSupported // Track if translation was needed
+                    confidenceScores: sentimentResult.confidenceScores,  // ✅ FIXED: was sentimentResult.scores
+                    wasTranslated: sentimentResult.wasTranslated  // ✅ FIXED: use the value from analyzeComment
                 };
                 
-                const analysisLang = isLanguageSupported ? sentimentResult.detectedLanguage : 'ja';
-                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence) - Analyzed in: ${analysisLang}`, context);
+                const confidence = Math.round((sentimentResult.confidenceScores[sentimentResult.sentiment] || 0) * 100);
+                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${confidence}% confidence) - Language: ${sentimentResult.detectedLanguage} -> Analysis: ${sentimentResult.analysisLanguage}`, context);
                 
             } catch (error) {
                 logMessage(`❌ Sentiment analysis failed for comment: ${error.message}`, context);
                 record.sentimentAnalysis = {
                     originalComment: record.comment,
                     detectedLanguage: 'unknown',
-                    japaneseTranslation: record.comment,
+                    japaneseTranslation: null,
                     analysisLanguage: 'unknown',
-                    error: error.message,
-                    sentiment: "unknown"
+                    sentiment: 'unknown',
+                    confidenceScores: { positive: 0, neutral: 0, negative: 0 },
+                    wasTranslated: false,
+                    error: error.message
                 };
             }
         }
