@@ -5,6 +5,7 @@ if (!process.env.WEBSITE_SITE_NAME) {
 const { BlobServiceClient } = require('@azure/storage-blob');
 const { logMessage, handleError, moveBlob } = require('./utils');
 const { app } = require('@azure/functions');
+// Updated to use new extractors (removed /legacy/ path)
 const { extractGeneralManagementData } = require('./docIntelligence/generalManagementFormExtractor');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
 const { uploadToMondayGeneralManagementBoard } = require('./monday/generalManagementDashboard');
@@ -131,33 +132,50 @@ async function processExtractedData(context, {
     logMessage(`🧠 Starting data extraction for title: ${title}`, context);
     
     if (title === GENERAL_MANAGEMENT_FORM) {
-      const result = await extractGeneralManagementData(context, base64Raw, fileExtension);
-      const { extractedRows, categories } = result;
+      // Use new structured extractor
+      const structuredData = await extractGeneralManagementData(context, base64Raw, fileExtension);
       
-      logMessage(`📊 Extracted ${extractedRows.length} rows from 一般管理フォーム`, context);
+      logMessage(`📊 Extracted structured data from 一般管理フォーム:`, context);
+      logMessage(`  - Location: ${structuredData.metadata.location}`, context);
+      logMessage(`  - Year-Month: ${structuredData.metadata.yearMonth}`, context);
+      logMessage(`  - Daily Records: ${structuredData.dailyRecords.length}`, context);
+      logMessage(`  - Categories: ${structuredData.categories.length}`, context);
 
-      logMessage('just about to start the report preparation', context);
-      await prepareGeneralManagementReport(extractedRows, categories, context, base64Raw, blobName);
+      logMessage('🚀 Starting report preparation for 一般管理...', context);
+      
+      // Pass structured data directly to report generator
+      await prepareGeneralManagementReport(structuredData, context, base64Raw, blobName);
 
-      logMessage(`Finished generating the report`, context);
-      /* Uncomment below to upload to Monday.com
-      for (const { row, fileName } of extractedRows) {
+      logMessage(`✅ Finished generating 一般管理 report`, context);
+      
+      /* Uncomment below to upload to Monday.com (will need legacy conversion)
+      const legacyData = convertStructuredToLegacyFormat(structuredData, 'general');
+      for (const { row, fileName } of legacyData.extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (一般管理): ${fileName}`, context);
         await uploadToMondayGeneralManagementBoard(row, context, base64Raw, fileName);
       }
       */
-    } else if (title === IMPORTANT_MANAGEMENT_FORM) {
-      const result = await extractImportantManagementData(context, base64Raw, fileExtension);
-      const { extractedRows, menuItems } = result;
       
-      logMessage(`📊 Extracted ${extractedRows.length} rows from 重要管理フォーム`, context);
+    } else if (title === IMPORTANT_MANAGEMENT_FORM) {
+      // Use new structured extractor
+      const structuredData = await extractImportantManagementData(context, base64Raw, fileExtension);
+      
+      logMessage(`📊 Extracted structured data from 重要管理フォーム:`, context);
+      logMessage(`  - Location: ${structuredData.metadata.location}`, context);
+      logMessage(`  - Year-Month: ${structuredData.metadata.yearMonth}`, context);
+      logMessage(`  - Daily Records: ${structuredData.dailyRecords.length}`, context);
+      logMessage(`  - Menu Items: ${structuredData.menuItems.length}`, context);
 
-      logMessage('just about to start the report preparation', context);
-      await prepareImportantManagementReport(extractedRows, menuItems, context, base64Raw, blobName);
+      logMessage('🚀 Starting report preparation for 重要管理...', context);
+      
+      // Pass structured data directly to report generator
+      await prepareImportantManagementReport(structuredData, context, base64Raw, blobName);
 
-      logMessage(`Finished generating the report`, context);
-      /* Uncomment below to upload to Monday.com 
-      for (const { row, fileName } of extractedRows) {
+      logMessage(`✅ Finished generating 重要管理 report`, context);
+      
+      /* Uncomment below to upload to Monday.com (will need legacy conversion)
+      const legacyData = convertStructuredToLegacyFormat(structuredData, 'important');
+      for (const { row, fileName } of legacyData.extractedRows) {
         logMessage(`📤 Uploading row to Monday.com (重要管理): ${fileName}`, context);
         await uploadToMonday(row, context, base64Raw, fileName);
       }
@@ -180,4 +198,50 @@ async function processExtractedData(context, {
   } catch (error) {
     handleError("❌ Error during data extraction/upload", error, context);
   }
+}
+
+/**
+ * Converts the new structured data format back to legacy format for Monday.com compatibility
+ * (Only needed if Monday.com upload is enabled)
+ */
+function convertStructuredToLegacyFormat(structuredData, formType) {
+  if (formType === 'general') {
+    const extractedRows = structuredData.dailyRecords.map(record => ({
+      row: {
+        text_mkv0z6d: structuredData.metadata.location,
+        date4: record.date,
+        color_mkv02tqg: record.Cat1Status,
+        color_mkv0yb6g: record.Cat2Status,
+        color_mkv06e9z: record.Cat3Status,
+        color_mkv0x9mr: record.Cat4Status,
+        color_mkv0df43: record.Cat5Status,
+        color_mkv5fa8m: record.Cat6Status,
+        color_mkv59ent: record.Cat7Status,
+        text_mkv0etfg: record.comment,
+        color_mkv0xnn4: record.approverStatus
+      }
+    }));
+    const categories = structuredData.categories.map(cat => cat.categoryName);
+    return { extractedRows, categories };
+    
+  } else if (formType === 'important') {
+    const extractedRows = structuredData.dailyRecords.map(record => ({
+      row: {
+        text_mkv0z6d: structuredData.metadata.location,
+        date4: record.date,
+        color_mkv02tqg: record.Menu1Status,
+        color_mkv0yb6g: record.Menu2Status,
+        color_mkv06e9z: record.Menu3Status,
+        color_mkv0x9mr: record.Menu4Status,
+        color_mkv0df43: record.Menu5Status,
+        color_mkv0ej57: record.dailyCheckStatus,
+        text_mkv0etfg: record.comment,
+        color_mkv0xnn4: record.approverStatus
+      }
+    }));
+    const menuItems = structuredData.menuItems.map(item => item.menuName);
+    return { extractedRows, menuItems };
+  }
+
+  throw new Error(`Unknown form type: ${formType}`);
 }

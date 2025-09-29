@@ -1,0 +1,3 @@
+The extractors in this folder were developed for integrating with Monday. 
+It has dependencies on Monday dashboard column names and its structure. 
+Use the extractors in its parents folder moving forward.

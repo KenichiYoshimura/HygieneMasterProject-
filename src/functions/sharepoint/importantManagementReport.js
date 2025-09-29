@@ -1,631 +1,494 @@
 const { logMessage, handleError, convertHeicToJpegIfNeeded } = require('../utils');
 const {
-  uploadJsonToSharePoint,
-  uploadTextToSharePoint,
-  uploadOriginalDocumentToSharePoint,
-  ensureSharePointFolder,
-  uploadHtmlToSharePoint
+    uploadJsonToSharePoint,
+    uploadTextToSharePoint,
+    uploadOriginalDocumentToSharePoint,
+    ensureSharePointFolder,
+    uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
+const { analyzeComment } = require('../analytics/sentimentAnalysis'); // Added sentiment analysis
 const axios = require('axios');
-const FormData = require('form-data');
-const fs = require('fs');
-const path = require('path');
-const { analyzeComment } = require('../analytics/sentimentAnalysis');
 
-async function prepareImportantManagementReport(extractedRows, menuItems, context, base64BinFile, originalFileName) {
-  logMessage("🚀 prepareImportantManagementReport() called", context);
-  try {
-    // DEBUG: Print the exact structure we're receiving
-    logMessage("🔍 DEBUG: Raw input analysis...", context);
-    logMessage(`📊 extractedRows type: ${typeof extractedRows}`, context);
-    logMessage(`📊 extractedRows length: ${Array.isArray(extractedRows) ? extractedRows.length : 'not array'}`, context);
-    logMessage(`📊 extractedRows content:`, context);
-    logMessage(`${JSON.stringify(extractedRows, null, 2)}`, context);
+/**
+ * Prepares important management reports from structured data and uploads to SharePoint
+ * 
+ * @param {Object} structuredData - New structured data format from importantManagementFormExtractor
+ * @param {Object} context - Azure Functions execution context
+ * @param {string} base64BinFile - Base64 encoded original file
+ * @param {string} originalFileName - Original filename for submission info
+ */
+async function prepareImportantManagementReport(structuredData, context, base64BinFile, originalFileName) {
+    logMessage("🚀 prepareImportantManagementReport() called with structured data", context);
+    
+    try {
+        logMessage("📊 Processing structured data:", context);
+        logMessage(`  - Store: ${structuredData.metadata.location}`, context);
+        logMessage(`  - Year-Month: ${structuredData.metadata.yearMonth}`, context);
+        logMessage(`  - Daily Records: ${structuredData.dailyRecords.length}`, context);
+        logMessage(`  - Menu Items: ${structuredData.menuItems.length}`, context);
 
-    logMessage(`📊 menuItems:`, context);
-    logMessage(`${JSON.stringify(menuItems, null, 2)}`, context);
+        // Add sentiment analysis to structured data
+        logMessage("🧠 Starting sentiment analysis for comments...", context);
+        await addSentimentAnalysisToStructuredData(structuredData, context);
+        logMessage("✅ Sentiment analysis completed", context);
 
-    logMessage(`📊 originalFileName: ${originalFileName}`, context);
-    // Handle both array and single object formats
-    let rowDataArray = [];
-    if (Array.isArray(extractedRows)) {
-      // If it's an array, extract the .row property from each item
-      rowDataArray = extractedRows.map(item => {
-        if (item && item.row) {
-          return item.row;
-        } else {
-          return item; // fallback if no .row property
+        // Generate reports using structured data (now with sentiment analysis)
+        const jsonReport = generateJsonReport(structuredData, originalFileName, context);
+        logMessage("✅ JSON report generated", context);
+
+        const textReport = generateTextReport(structuredData, originalFileName, context);
+        logMessage("✅ Text report generated", context);
+
+        const htmlReport = generateHtmlReport(structuredData, originalFileName, context);
+        logMessage("✅ HTML report generated", context);
+
+        // Upload to SharePoint
+        logMessage("📤 Starting SharePoint upload...", context);
+        await uploadReportsToSharePoint(jsonReport, textReport, htmlReport, base64BinFile, originalFileName, structuredData, context);
+        logMessage("✅ SharePoint upload completed", context);
+
+        return {
+            json: jsonReport,
+            text: textReport,
+            html: htmlReport
+        };
+        
+    } catch (error) {
+        handleError(error, 'Important Management Report Generation', context);
+        throw error;
+    }
+}
+
+/**
+ * Adds sentiment analysis to comments in structured data
+ * Modifies the structuredData object in place
+ */
+async function addSentimentAnalysisToStructuredData(structuredData, context) {
+    for (const record of structuredData.dailyRecords) {
+        if (record.comment && record.comment !== "not found" && record.comment.trim()) {
+            try {
+                logMessage(`😊 Analyzing sentiment for comment: "${record.comment.substring(0, 30)}..."`, context);
+                const sentimentResult = await analyzeComment(record.comment);
+                
+                // Add sentiment data to the record
+                record.sentimentAnalysis = {
+                    originalComment: sentimentResult.originalComment,
+                    detectedLanguage: sentimentResult.detectedLanguage,
+                    japaneseTranslation: sentimentResult.japaneseTranslation,
+                    sentiment: sentimentResult.sentiment,
+                    confidenceScores: sentimentResult.scores
+                };
+                
+                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence)`, context);
+                
+            } catch (error) {
+                logMessage(`❌ Sentiment analysis failed for comment: ${error.message}`, context);
+                record.sentimentAnalysis = {
+                    originalComment: record.comment,
+                    error: error.message,
+                    sentiment: "unknown"
+                };
+            }
         }
-      });
-    } else if (extractedRows && typeof extractedRows === 'object') {
-      rowDataArray = [extractedRows.row || extractedRows];
-    } else {
-      logMessage("❌ ERROR: extractedRows is neither array nor object", context);
-      throw new Error("Invalid extractedRows format");
     }
-    logMessage(`📊 Processed rowDataArray length: ${rowDataArray.length}`, context);
-    if (rowDataArray.length > 0) {
-      logMessage(`📊 First processed row:`, context);
-      logMessage(`${JSON.stringify(rowDataArray[0], null, 2)}`, context);
-      logMessage(`📊 Available keys: ${Object.keys(rowDataArray[0]).join(', ')}`, context);
+}
+
+async function uploadReportsToSharePoint(jsonReport, textReport, htmlReport, base64BinFile, originalFileName, structuredData, context) {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
+        
+        // Use form data for folder structure
+        const location = structuredData.metadata.location;
+        const [year, month] = structuredData.metadata.yearMonth.split('-');
+        
+        logMessage(`📋 Using structured data for folder: ${location}, ${year}-${month}`, context);
+        
+        const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
+        const folderPath = `${basePath}/重要衛生管理の実施記録/${year}/${month}/${location}`;
+        
+        logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
+        await ensureSharePointFolder(folderPath, context);
+
+        const jsonFileName = `important-report-${baseFileName}-${timestamp}.json`;
+        const textFileName = `important-report-${baseFileName}-${timestamp}.txt`;
+        const htmlFileName = `important-report-${baseFileName}-${timestamp}.html`;
+        const originalDocFileName = `original-${originalFileName}`;
+
+        await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
+        await uploadTextToSharePoint(textReport, textFileName, folderPath, context);
+        await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
+        await uploadHtmlToSharePoint(htmlReport, htmlFileName, folderPath, context);
+
+        logMessage("✅ All important management reports uploaded to SharePoint successfully", context);
+        
+    } catch (error) {
+        logMessage(`❌ SharePoint upload process failed: ${error.message}`, context);
+        handleError(error, 'SharePoint Upload', context);
+        throw error;
     }
-    // Generate structured JSON data
-    const jsonReport = generateJsonReport(rowDataArray, menuItems, originalFileName, context);
-    logMessage("✅ JSON report generated", context);
+}
 
-    const textReport = generateTextReport(rowDataArray, menuItems, originalFileName, context);
-    logMessage("✅ Text report generated", context);
-
-    const htmlReport = await generateHtmlReport(rowDataArray, menuItems, originalFileName, context);
-    logMessage("✅ HTML report generated", context);
-
-    // Upload to SharePoint (add HTML upload if needed)
-    logMessage("📤 Starting SharePoint upload...", context);
-    await uploadReportsToSharePoint(jsonReport, textReport, htmlReport, base64BinFile, originalFileName, rowDataArray, context);
-    logMessage("✅ SharePoint upload completed", context);
-
-    return {
-      json: jsonReport,
-      text: textReport,
-      html: htmlReport
+function generateJsonReport(structuredData, originalFileName, context) {
+    const fileNameParts = parseFileName(originalFileName, context);
+    
+    const reportData = {
+        title: "重要管理の実施記録",
+        submissionDate: fileNameParts.submissionDate,
+        submitter: fileNameParts.senderEmail,
+        originalFileName: fileNameParts.originalFileName,
+        storeName: structuredData.metadata.location,
+        yearMonth: structuredData.metadata.yearMonth,
+        
+        menuItems: structuredData.menuItems.map((item, index) => ({
+            id: `Menu ${index + 1}`,
+            name: item.menuName
+        })),
+        
+        tableHeaders: [
+            "日付", "Menu 1", "Menu 2", "Menu 3", "Menu 4", "Menu 5", "日常点検", "特記事項", "感情分析", "確認者"
+        ],
+        
+        dailyData: structuredData.dailyRecords.map(record => ({
+            日付: String(record.day).padStart(2, '0'),
+            "Menu 1": record.Menu1Status,
+            "Menu 2": record.Menu2Status,
+            "Menu 3": record.Menu3Status,
+            "Menu 4": record.Menu4Status,
+            "Menu 5": record.Menu5Status,
+            日常点検: record.dailyCheckStatus,
+            特記事項: record.comment !== "not found" ? record.comment : "--",
+            感情分析: record.sentimentAnalysis || null,
+            確認者: record.approverStatus
+        })),
+        
+        summary: {
+            totalDays: structuredData.summary.totalDays,
+            recordedDays: structuredData.summary.recordedDays,
+            daysWithComments: structuredData.summary.daysWithComments,
+            approvedDays: structuredData.summary.approvedDays,
+            dailyCheckCompletedDays: structuredData.summary.dailyCheckCompletedDays,
+            // Add sentiment analysis summary
+            sentimentSummary: generateSentimentSummary(structuredData.dailyRecords)
+        },
+        
+        footer: {
+            generatedBy: "HygienMaster システム",
+            generatedAt: new Date().toISOString(),
+            note: "このレポートは HygienMaster システムにより自動生成されました"
+        }
     };
-  } catch (error) {
-    handleError(error, 'Important Management Report Generation', context);
-    throw error;
-  }
+    
+    return reportData;
 }
 
-// Upload function (add HTML upload)
-async function uploadReportsToSharePoint(jsonReport, textReport, htmlReport, base64BinFile, originalFileName, rowDataArray, context) {
-  try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-    const location = rowDataArray[0]?.text_mkv0z6d || rowDataArray[0]?.store || 'unknown';
-    const dateStr = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
-    const [year, month] = dateStr.split('-');
-    logMessage(`📋 Resolved location from form data: ${location}`, context);
-    logMessage(`📋 Resolved year from form data: ${year}`, context);
-    logMessage(`📋 Resolved month from form data: ${month}`, context);
-    logMessage(`📋 Form date used for folder structure: ${dateStr}`, context);
-    const basePath = process.env.SHAREPOINT_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'Form_Data';
-    const folderPath = `${basePath}/重要衛生管理の実施記録/${year}/${String(month).padStart(2, '0')}/${location}`;
-    logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
-    await ensureSharePointFolder(folderPath, context);
-
-    const jsonFileName = `重要衛生管理レポート-${baseFileName}-${timestamp}.json`;
-    const textFileName = `重要衛生管理レポート-${baseFileName}-${timestamp}.txt`;
-    const htmlFileName = `重要衛生管理レポート-${baseFileName}-${timestamp}.html`;
-    const originalDocFileName = `original-${originalFileName}`;
-
-    await uploadJsonToSharePoint(jsonReport, jsonFileName, folderPath, context);
-    await uploadTextToSharePoint(textReport, textFileName, folderPath, context);
-    await uploadOriginalDocumentToSharePoint(base64BinFile, originalDocFileName, folderPath, context);
-    await uploadHtmlToSharePoint(htmlReport, htmlFileName, folderPath, context);
-
-
-
-    logMessage("✅ All important management reports uploaded to SharePoint successfully", context);
-  } catch (error) {
-    logMessage(`❌ SharePoint upload process failed: ${error.message}`, context);
-    handleError(error, 'SharePoint Upload', context);
-    throw error;
-  }
-}
-
-// --- HTML Generation Function ---
-async function generateHtmlReport(rowDataArray, menuItems, originalFileName, context) {
-  const fileNameParts = parseFileName(originalFileName, context);
-  const storeName = rowDataArray[0]?.text_mkv0z6d || "Unknown Store";
-  const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
-  const yearMonth = fullDate.substring(0, 7);
-
-  // Menu item descriptions
-  const menuDescriptions = menuItems && menuItems.length > 0 && menuItems.some(item => item && item !== 'not found')
-    ? menuItems
-    : [
-      '重要管理項目1',
-      '重要管理項目2',
-      '重要管理項目3',
-      '重要管理項目4',
-      '重要管理項目5'
-    ];
-
-  // Table rows
-  const tableRows = rowDataArray.map(row => `
-    <tr>
-      <td>${row.date4 ? row.date4.split('-')[2] : '--'}</td>
-      <td>${row.color_mkv02tqg || '--'}</td>
-      <td>${row.color_mkv0yb6g || '--'}</td>
-      <td>${row.color_mkv06e9z || '--'}</td>
-      <td>${row.color_mkv0x9mr || '--'}</td>
-      <td>${row.color_mkv0df43 || '--'}</td>
-      <td>${row.color_mkv0ej57 || '--'}</td>
-      <td>${row.text_mkv0etfg || '--'}</td>
-      <td>${row.color_mkv0xnn4 || '--'}</td>
-    </tr>
-  `).join('\n');
-
-  // Collect comments for sentiment analysis
-  const commentRows = rowDataArray
-  .filter(row => row.text_mkv0etfg && row.text_mkv0etfg !== 'not found')
-  .map(row => ({
-    date: row.date4 ? row.date4.split('-')[2] : '--',
-    comment: row.text_mkv0etfg
-  }));
-
-  // 2. Perform sentiment analysis on comments
-  const sentimentResults = await Promise.all(
-  commentRows.map(async ({ date, comment }) => {
-      const result = await analyzeComment(comment);
-      return {
-        date,
-        ...result
-      };
-    })
-  );
-
-  // 3. Generate sentiment report section
-  const sentimentSection = generateSentimentReportTable(sentimentResults);
-
-  // Menu NG counts
-  const ngCounts = menuDescriptions.map((desc, idx) => {
-    const colId = [
-      'color_mkv02tqg', 'color_mkv0yb6g', 'color_mkv06e9z',
-      'color_mkv0x9mr', 'color_mkv0df43'
-    ][idx];
-    return rowDataArray.filter(row => row[colId] === '否').length;
-  });
-
-  // HTML template
-  return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>重要管理の実施記録</title>
-  <style>
-    body { font-family: 'Meiryo', 'Yu Gothic', sans-serif; margin: 2em; background-color: #fff; }
-    h1, h2, h3 { color: #333; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
-    th, td { border: 1px solid #aaa; padding: 0.5em; text-align: center; }
-    th { background: #d0f5d8; }
-    tr:nth-child(even) { background: #f9f9f9; }
-    .section-box {
-      border-left: 6px solid #2e7d32;
-      background-color: #f5f5f5;
-      padding: 1em;
-      margin-bottom: 2em;
-    }
-  </style>
-</head>
-<body>
-  <h1>重要管理の実施記録</h1>
-  <div class="summary">
-    <strong>提出日：</strong>${fileNameParts.submissionDate}<br>
-    <strong>提出者：</strong>${fileNameParts.senderEmail}<br>
-    <strong>ファイル名：</strong>${fileNameParts.originalFileName}<br>
-    <strong>店舗名：</strong>${storeName}<br>
-    <strong>年月：</strong>${yearMonth}
-  </div>
-
-  <h3>管理記録表</h3>
-  <table>
-    <tr>
-      <th>日付</th>
-      <th>Menu 1</th>
-      <th>Menu 2</th>
-      <th>Menu 3</th>
-      <th>Menu 4</th>
-      <th>Menu 5</th>
-      <th>日常点検</th>
-      <th>特記事項</th>
-      <th>確認者</th>
-    </tr>
-    ${tableRows}
-  </table>
-
-  <div class="section-box">
-    <h3>重要管理項目の各メニューアイテム</h3>
-    <ul>
-      ${menuDescriptions.map((desc, idx) => `<li>Menu ${idx + 1}: ${desc}</li>`).join('\n')}
-    </ul>
-  </div>
-
-  <div class="section-box">
-    <h3>サマリー</h3>
-    <ul>
-      <li>記録日数：${rowDataArray.length}日</li>
-      <li>全項目「良」達成日数：${rowDataArray.filter(row =>
-    ['color_mkv02tqg', 'color_mkv0yb6g', 'color_mkv06e9z', 'color_mkv0x9mr', 'color_mkv0df43']
-      .every(col => row[col] === '良')).length}日</li>
-      <li>「否」あり日数：${rowDataArray.filter(row =>
-        ['color_mkv02tqg', 'color_mkv0yb6g', 'color_mkv06e9z', 'color_mkv0x9mr', 'color_mkv0df43']
-          .some(col => row[col] === '否')).length}日</li>
-      <li>コメント記入日数：${rowDataArray.filter(row => row.text_mkv0etfg && row.text_mkv0etfg !== 'not found').length}日</li>
-      <li>メニューごとの「否」回数：
-        <ul>
-          ${ngCounts.map((count, idx) => `<li>Menu ${idx + 1}: ${count}回</li>`).join('\n')}
-        </ul>
-      </li>
-    </ul>
-  </div>
-  ${sentimentSection}
-  <div style="margin-top:2em;">
-    このレポートは HygienMaster システムにより自動生成されました<br>
-    生成日時: ${new Date().toISOString()}
-  </div>
-</body>
-</html>
-  `;
-}
-
-function generateJsonReport(rowDataArray, menuItems, originalFileName, context) {
-  // Parse original filename for submission info
-  const fileNameParts = parseFileName(originalFileName, context);
-
-  // Get store and date info from first row
-  const storeName = rowDataArray[0]?.text_mkv0z6d || "Unknown Store";
-  const fullDate = rowDataArray[0]?.date4 || new Date().toISOString().split('T')[0];
-  const yearMonth = fullDate.substring(0, 7); // YYYY-MM format
-
-  // Handle menu items - use defaults if all are "not found"
-  let finalMenuItems = menuItems;
-  const hasValidMenuItems = menuItems && menuItems.some(item => item && item !== 'not found');
-
-  if (!hasValidMenuItems) {
-    logMessage("⚠️ No valid menu items found for JSON, using defaults", context);
-    finalMenuItems = [
-      '重要管理項目1',
-      '重要管理項目2',
-      '重要管理項目3',
-      '重要管理項目4',
-      '重要管理項目5'
-    ];
-  }
-
-  const reportData = {
-    // Report header (matching TXT exactly)
-    title: "重要管理の実施記録",
-    submissionDate: fileNameParts.submissionDate,
-    submitter: fileNameParts.senderEmail,
-    originalFileName: fileNameParts.originalFileName,
-    storeName: storeName,
-    yearMonth: yearMonth,
-
-    // Menu item definitions (matching TXT exactly)
-    menuItems: finalMenuItems.map((menuItem, index) => ({
-      id: `Menu ${index + 1}`,
-      name: menuItem
-    })),
-
-    // Table headers (matching TXT exactly)
-    tableHeaders: [
-      "日付",
-      "Menu 1",
-      "Menu 2",
-      "Menu 3",
-      "Menu 4",
-      "Menu 5",
-      "日常点検",
-      "特記事項",
-      "確認者"
-    ],
-
-    // Daily data (matching TXT table exactly)
-    dailyData: rowDataArray.map(row => {
-      const dayOnly = row.date4 ? row.date4.split('-')[2] : '--';
-
-      return {
-        日付: dayOnly,
-        "Menu 1": row.color_mkv02tqg || '--',
-        "Menu 2": row.color_mkv0yb6g || '--',
-        "Menu 3": row.color_mkv06e9z || '--',
-        "Menu 4": row.color_mkv0x9mr || '--',
-        "Menu 5": row.color_mkv0df43 || '--',
-        日常点検: row.color_mkv0ej57 || '--',
-        特記事項: row.text_mkv0etfg || '--',
-        確認者: row.color_mkv0xnn4 || '--'
-      };
-    }),
-
-    // Footer (matching TXT exactly)
-    footer: {
-      generatedBy: "HygienMaster システム",
-      generatedAt: new Date().toISOString(),
-      note: "このレポートは HygienMaster システムにより自動生成されました"
-    }
-  };
-
-  return reportData;
-}
-
-function generateTextReport(rowDataArray, menuItems, originalFileName, context) {
-  // Parse original filename for submission info
-  const fileNameParts = parseFileName(originalFileName, context);
-
-  // Get store and date info from first row (if available)
-  let storeName = 'Unknown Store';
-  let yearMonth = new Date().toISOString().substring(0, 7);
-
-  if (rowDataArray.length > 0 && rowDataArray[0]) {
-    const firstRow = rowDataArray[0];
-    storeName = firstRow.text_mkv0z6d || firstRow.store || 'Unknown Store';
-
-    if (firstRow.date4) {
-      yearMonth = firstRow.date4.substring(0, 7);
-    } else if (firstRow.year && firstRow.month) {
-      yearMonth = `${firstRow.year}-${String(firstRow.month).padStart(2, '0')}`;
-    }
-
-    logMessage(`📊 Store: ${storeName}, Year-Month: ${yearMonth}`, context);
-  }
-
-  let textReport = `
+function generateTextReport(structuredData, originalFileName, context) {
+    const fileNameParts = parseFileName(originalFileName, context);
+    
+    let textReport = `
 重要管理の実施記録
 提出日：${fileNameParts.submissionDate}
 提出者：${fileNameParts.senderEmail}  
 ファイル名：${fileNameParts.originalFileName}
 
-店舗名：${storeName}
-年月：${yearMonth}
+店舗名：${structuredData.metadata.location}
+年月：${structuredData.metadata.yearMonth}
 
 重要管理項目：
 `;
 
-  // Add menu item descriptions - handle "not found" values
-  if (menuItems && menuItems.length > 0) {
-    let hasValidMenuItems = false;
-    menuItems.forEach((menuItem, index) => {
-      if (menuItem && menuItem !== 'not found') {
-        textReport += `Menu ${index + 1}: ${menuItem}\n`;
-        hasValidMenuItems = true;
-      }
+    // Add menu item descriptions
+    structuredData.menuItems.forEach((menuItem, index) => {
+        textReport += `Menu ${index + 1}: ${menuItem.menuName}\n`;
     });
 
-    // If no valid menu items found, use default descriptions
-    if (!hasValidMenuItems) {
-      logMessage("⚠️ No valid menu items found, using defaults", context);
-      const defaultMenuItems = [
-        '重要管理項目1',
-        '重要管理項目2',
-        '重要管理項目3',
-        '重要管理項目4',
-        '重要管理項目5'
-      ];
-      defaultMenuItems.forEach((menuItem, index) => {
-        textReport += `Menu ${index + 1}: ${menuItem}\n`;
-      });
-    }
-  } else {
-    // Fallback menu item descriptions
-    logMessage("⚠️ No menu items provided, using defaults", context);
-    const defaultMenuItems = [
-      '重要管理項目1',
-      '重要管理項目2',
-      '重要管理項目3',
-      '重要管理項目4',
-      '重要管理項目5'
-    ];
-    defaultMenuItems.forEach((menuItem, index) => {
-      textReport += `Menu ${index + 1}: ${menuItem}\n`;
-    });
-  }
+    textReport += '\n';
 
-  textReport += '\n';
+    // Create table header
+    const headerRow = `日付 | Menu 1 | Menu 2 | Menu 3 | Menu 4 | Menu 5 | 日常点検 | 特記事項 | 感情 | 確認者`;
+    textReport += headerRow + '\n';
+    textReport += ''.padEnd(headerRow.length, '-') + '\n';
 
-  // Create shorter table header
-  const headerRow = `日付 | Menu 1 | Menu 2 | Menu 3 | Menu 4 | Menu 5 | 日常点検 | 特記事項 | 確認者`;
-  textReport += headerRow + '\n';
-  textReport += ''.padEnd(headerRow.length, '-') + '\n';
-
-  // Add data rows
-  if (rowDataArray.length > 0) {
-    rowDataArray.forEach(row => {
-      if (row) {
-        // Extract day from date4 (remove year-month part)
-        let dayOnly = '--';
-        if (row.date4) {
-          dayOnly = row.date4.split('-')[2] || '--';
-        } else if (row.day) {
-          dayOnly = String(row.day).padStart(2, '0');
-        }
-
+    // Add data rows
+    structuredData.dailyRecords.forEach(record => {
+        const sentiment = record.sentimentAnalysis?.sentiment || '--';
         const dataRow = [
-          dayOnly.padEnd(4),
-          (row.color_mkv02tqg || '--').padEnd(7),
-          (row.color_mkv0yb6g || '--').padEnd(7),
-          (row.color_mkv06e9z || '--').padEnd(7),
-          (row.color_mkv0x9mr || '--').padEnd(7),
-          (row.color_mkv0df43 || '--').padEnd(7),
-          (row.color_mkv0ej57 || '--').padEnd(8),
-          (row.text_mkv0etfg && row.text_mkv0etfg !== 'not found' ? row.text_mkv0etfg.substring(0, 8) : '--').padEnd(8),
-          (row.color_mkv0xnn4 || '--')
+            String(record.day).padStart(2, '0').padEnd(4),
+            record.Menu1Status.padEnd(7),
+            record.Menu2Status.padEnd(7),
+            record.Menu3Status.padEnd(7),
+            record.Menu4Status.padEnd(7),
+            record.Menu5Status.padEnd(7),
+            record.dailyCheckStatus.padEnd(8),
+            (record.comment !== "not found" ? record.comment.substring(0, 8) : '--').padEnd(8),
+            sentiment.padEnd(4),
+            record.approverStatus
         ].join('| ');
-
+        
         textReport += dataRow + '\n';
-      }
     });
-  } else {
-    // No data available
-    textReport += 'データが見つかりませんでした。\n';
-  }
 
-  textReport += `
+    // Add sentiment analysis section
+    const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
+    textReport += `
+========================================
+感情分析サマリー：
+ポジティブ: ${sentimentSummary.positive}件
+ネガティブ: ${sentimentSummary.negative}件
+ニュートラル: ${sentimentSummary.neutral}件
+分析エラー: ${sentimentSummary.errors}件
 ========================================
 このレポートは HygienMaster システムにより自動生成されました
 生成日時: ${new Date().toISOString()}
 ========================================
 `;
 
-  return textReport;
+    return textReport;
+}
+
+function generateHtmlReport(structuredData, originalFileName, context) {
+    const fileNameParts = parseFileName(originalFileName, context);
+
+    const tableRows = structuredData.dailyRecords.map(record => {
+        const sentimentEmoji = getSentimentEmoji(record.sentimentAnalysis?.sentiment);
+        const sentimentTitle = record.sentimentAnalysis ? 
+            `${record.sentimentAnalysis.sentiment} (${Math.round(record.sentimentAnalysis.confidenceScores[record.sentimentAnalysis.sentiment] * 100)}%)` : 
+            '';
+        
+        return `
+        <tr>
+            <td>${String(record.day).padStart(2, '0')}</td>
+            <td>${record.Menu1Status}</td>
+            <td>${record.Menu2Status}</td>
+            <td>${record.Menu3Status}</td>
+            <td>${record.Menu4Status}</td>
+            <td>${record.Menu5Status}</td>
+            <td>${record.dailyCheckStatus}</td>
+            <td>${record.comment !== "not found" ? record.comment : '--'}</td>
+            <td title="${sentimentTitle}">${sentimentEmoji}</td>
+            <td>${record.approverStatus}</td>
+        </tr>
+        `;
+    }).join('\n');
+
+    const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
+
+    return `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>重要管理の実施記録</title>
+    <style>
+        body { 
+            font-family: 'Meiryo', 'Yu Gothic', sans-serif; 
+            margin: 2em; 
+            background-color: #fff; 
+        }
+        h1, h2, h3 { 
+            color: #333; 
+        }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin-bottom: 2em; 
+        }
+        th, td { 
+            border: 1px solid #aaa; 
+            padding: 0.5em; 
+            text-align: center; 
+        }
+        th { 
+            background: #d0f5d8; 
+        }
+        tr:nth-child(even) { 
+            background: #f9f9f9; 
+        }
+        .section-box {
+            border-left: 6px solid #2e7d32;
+            background-color: #f5f5f5;
+            padding: 1em;
+            margin-bottom: 2em;
+        }
+        .sentiment-positive { color: #4caf50; font-weight: bold; }
+        .sentiment-negative { color: #f44336; font-weight: bold; }
+        .sentiment-neutral { color: #9e9e9e; }
+    </style>
+</head>
+<body>
+    <h1>重要管理の実施記録</h1>
+    <div class="summary">
+        <strong>提出日：</strong>${fileNameParts.submissionDate}<br>
+        <strong>提出者：</strong>${fileNameParts.senderEmail}<br>
+        <strong>ファイル名：</strong>${fileNameParts.originalFileName}<br>
+        <strong>店舗名：</strong>${structuredData.metadata.location}<br>
+        <strong>年月：</strong>${structuredData.metadata.yearMonth}
+    </div>
+
+    <h3>管理記録表</h3>
+    <table>
+        <tr>
+            <th>日付</th>
+            <th>Menu 1</th>
+            <th>Menu 2</th>
+            <th>Menu 3</th>
+            <th>Menu 4</th>
+            <th>Menu 5</th>
+            <th>日常点検</th>
+            <th>特記事項</th>
+            <th>感情</th>
+            <th>確認者</th>
+        </tr>
+        ${tableRows}
+    </table>
+
+    <div class="section-box">
+        <h3>重要管理項目の各メニューアイテム</h3>
+        <ul>
+            ${structuredData.menuItems.map((item, idx) => `<li>Menu ${idx + 1}: ${item.menuName}</li>`).join('\n')}
+        </ul>
+    </div>
+
+    <div class="section-box">
+        <h3>サマリー</h3>
+        <ul>
+            <li>記録日数：${structuredData.summary.recordedDays}日</li>
+            <li>コメント記入日数：${structuredData.summary.daysWithComments}日</li>
+            <li>承認済み日数：${structuredData.summary.approvedDays}日</li>
+            <li>日常点検完了日数：${structuredData.summary.dailyCheckCompletedDays}日</li>
+        </ul>
+        <h4>感情分析サマリー</h4>
+        <ul>
+            <li class="sentiment-positive">😊 ポジティブ: ${sentimentSummary.positive}件</li>
+            <li class="sentiment-negative">😞 ネガティブ: ${sentimentSummary.negative}件</li>
+            <li class="sentiment-neutral">😐 ニュートラル: ${sentimentSummary.neutral}件</li>
+            <li>❓ 分析エラー: ${sentimentSummary.errors}件</li>
+        </ul>
+    </div>
+
+    <div style="margin-top:2em;">
+        このレポートは HygienMaster システムにより自動生成されました<br>
+        生成日時: ${new Date().toISOString()}
+    </div>
+</body>
+</html>`;
+}
+
+/**
+ * Generates sentiment analysis summary from daily records
+ */
+function generateSentimentSummary(dailyRecords) {
+    const summary = {
+        positive: 0,
+        negative: 0,
+        neutral: 0,
+        errors: 0
+    };
+
+    dailyRecords.forEach(record => {
+        if (record.sentimentAnalysis) {
+            if (record.sentimentAnalysis.error) {
+                summary.errors++;
+            } else {
+                switch (record.sentimentAnalysis.sentiment) {
+                    case 'positive':
+                        summary.positive++;
+                        break;
+                    case 'negative':
+                        summary.negative++;
+                        break;
+                    case 'neutral':
+                        summary.neutral++;
+                        break;
+                    default:
+                        summary.errors++;
+                }
+            }
+        }
+    });
+
+    return summary;
+}
+
+/**
+ * Returns emoji representation of sentiment
+ */
+function getSentimentEmoji(sentiment) {
+    switch (sentiment) {
+        case 'positive':
+            return '😊';
+        case 'negative':
+            return '😞';
+        case 'neutral':
+            return '😐';
+        default:
+            return '--';
+    }
 }
 
 function parseFileName(fileName, context) {
-  logMessage(`🔍 Parsing filename: ${fileName}`, context);
-
-  try {
-    let submissionTime = '';
-    let senderEmail = '';
-    let originalFileName = fileName;
-
-    // Extract email (between parentheses)
-    const emailMatch = fileName.match(/\(([^)]*@[^)]*)\)/);
-    if (emailMatch) {
-      senderEmail = emailMatch[1];
-      logMessage(`📧 Found email: ${senderEmail}`, context);
-
-      // Extract original filename - everything AFTER the (email) closing parenthesis
-      const emailEndIndex = fileName.indexOf(emailMatch[0]) + emailMatch[0].length;
-      originalFileName = fileName.substring(emailEndIndex);
-
-      // Clean up any leading/trailing whitespace and remove leading special characters
-      originalFileName = originalFileName.replace(/^\W+/, '').trim();
-
-      logMessage(`📄 Found original filename: ${originalFileName}`, context);
-    }
-
-    // Extract timestamp (before first parenthesis)
-    const timeMatch = fileName.match(/^([^(]+)/);
-    if (timeMatch) {
-      submissionTime = timeMatch[1];
-      logMessage(`⏰ Found timestamp: ${submissionTime}`, context);
-
-      // Try to parse the timestamp
-      if (submissionTime.includes('T')) {
-        try {
-          // Handle format like "20260826T050735"
-          const cleanTime = submissionTime.replace(/[^\d]/g, '');
-          if (cleanTime.length >= 8) {
-            const year = cleanTime.substring(0, 4);
-            const month = cleanTime.substring(4, 6);
-            const day = cleanTime.substring(6, 8);
-            const hour = cleanTime.substring(8, 10) || '00';
-            const minute = cleanTime.substring(10, 12) || '00';
-
-            const isoString = `${year}-${month}-${day}T${hour}:${minute}:00`;
-            const date = new Date(isoString);
-
-            if (!isNaN(date.getTime())) {
-              submissionTime = date.toLocaleDateString('ja-JP', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-              });
-              logMessage(`📅 Parsed date: ${submissionTime}`, context);
-            }
-          }
-        } catch (e) {
-          logMessage(`⚠️ Date parsing failed: ${e.message}`, context);
+    logMessage(`🔍 Parsing filename: ${fileName}`, context);
+    
+    try {
+        let submissionTime = '';
+        let senderEmail = '';
+        let originalFileName = fileName;
+        
+        const emailMatch = fileName.match(/\(([^)]*@[^)]*)\)/);
+        if (emailMatch) {
+            senderEmail = emailMatch[1];
+            const emailEndIndex = fileName.indexOf(emailMatch[0]) + emailMatch[0].length;
+            originalFileName = fileName.substring(emailEndIndex).replace(/^\W+/, '').trim();
         }
-      }
+        
+        const timeMatch = fileName.match(/^([^(]+)/);
+        if (timeMatch) {
+            submissionTime = timeMatch[1];
+            if (submissionTime.includes('T')) {
+                try {
+                    const cleanTime = submissionTime.replace(/[^\d]/g, '');
+                    if (cleanTime.length >= 8) {
+                        const year = cleanTime.substring(0, 4);
+                        const month = cleanTime.substring(4, 6);
+                        const day = cleanTime.substring(6, 8);
+                        const hour = cleanTime.substring(8, 10) || '00';
+                        const minute = cleanTime.substring(10, 12) || '00';
+                        
+                        const isoString = `${year}-${month}-${day}T${hour}:${minute}:00`;
+                        const date = new Date(isoString);
+                        
+                        if (!isNaN(date.getTime())) {
+                            submissionTime = date.toLocaleDateString('ja-JP', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                        }
+                    }
+                } catch (e) {
+                    logMessage(`⚠️ Date parsing failed: ${e.message}`, context);
+                }
+            }
+        }
+        
+        return {
+            submissionDate: submissionTime || 'Unknown',
+            senderEmail: senderEmail || 'Unknown',
+            originalFileName: originalFileName || fileName
+        };
+        
+    } catch (error) {
+        logMessage(`❌ Filename parsing error: ${error.message}`, context);
+        return {
+            submissionDate: 'Unknown',
+            senderEmail: 'Unknown',
+            originalFileName: fileName
+        };
     }
-
-    return {
-      submissionDate: submissionTime || 'Unknown',
-      senderEmail: senderEmail || 'Unknown',
-      originalFileName: originalFileName || fileName
-    };
-
-  } catch (error) {
-    logMessage(`❌ Filename parsing error: ${error.message}`, context);
-    return {
-      submissionDate: 'Unknown',
-      senderEmail: 'Unknown',
-      originalFileName: fileName
-    };
-  }
-}
-
-function generateSummaryData(rowDataArray, menuItems) {
-  const totalDays = rowDataArray.length;
-  const approvedDays = rowDataArray.filter(row =>
-    row.color_mkv0xnn4 === '良'
-  ).length;
-  const daysWithComments = rowDataArray.filter(row =>
-    row.text_mkv0etfg && row.text_mkv0etfg !== 'not found'
-  ).length;
-
-  return {
-    totalDays,
-    approvedDays,
-    approvalRate: totalDays > 0 ? (approvedDays / totalDays * 100).toFixed(1) : 0,
-    daysWithComments,
-    commentRate: totalDays > 0 ? (daysWithComments / totalDays * 100).toFixed(1) : 0
-  };
-}
-
-function generateAnalyticsData(rowDataArray, menuItems) {
-  const analytics = {
-    menuPerformance: [],
-    criticalDays: []
-  };
-
-  const menuColumnMapping = {
-    0: 'color_mkv02tqg', // Menu1
-    1: 'color_mkv0yb6g', // Menu2
-    2: 'color_mkv06e9z', // Menu3
-    3: 'color_mkv0x9mr', // Menu4
-    4: 'color_mkv0df43'  // Menu5
-  };
-
-  menuItems.forEach((menuItem, index) => {
-    const mondayColumnId = menuColumnMapping[index];
-
-    const okCount = rowDataArray.filter(row =>
-      row[mondayColumnId] === '良'
-    ).length;
-    const ngCount = rowDataArray.filter(row =>
-      row[mondayColumnId] === '否'
-    ).length;
-
-    analytics.menuPerformance.push({
-      menuId: index + 1,
-      menuName: menuItem,
-      mondayColumnId: mondayColumnId,
-      okCount,
-      ngCount,
-      successRate: rowDataArray.length > 0 ? (okCount / rowDataArray.length * 100).toFixed(1) : 0,
-      riskLevel: ngCount > rowDataArray.length * 0.2 ? "critical" : ngCount > 0 ? "high" : "normal"
-    });
-  });
-
-  return analytics;
-}
-
-function generateSentimentReportTable(sentimentResults) {
-  return `
-    <h3>センチメント分析レポート</h3>
-    <table>
-      <tr>
-        <th>日付</th>
-        <th>コメント（原文）</th>
-        <th>検出言語</th>
-        <th>日本語訳</th>
-        <th>分析言語</th>
-        <th>センチメント</th>
-        <th>スコア</th>
-      </tr>
-      ${sentimentResults.map(res => `
-        <tr>
-          <td>${res.date}</td>
-          <td>${res.originalComment}</td>
-          <td>${res.detectedLanguage}</td>
-          <td>${res.japaneseTranslation}</td>
-          <td>${res.sentimentAnalysisLanguage}</td>
-          <td>${res.sentiment}</td>
-          <td>
-            👍 ${res.scores.positive} /
-            😐 ${res.scores.neutral} /
-            👎 ${res.scores.negative}
-          </td>
-        </tr>
-      `).join('')}
-    </table>
-  `;
 }
 
 module.exports = {
-  prepareImportantManagementReport
+    prepareImportantManagementReport
 };
