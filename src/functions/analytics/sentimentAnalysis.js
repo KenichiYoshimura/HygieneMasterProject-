@@ -19,25 +19,50 @@ const supportedLanguages = new Set([
 
 // Unified function for sentiment analysis
 async function analyzeComment(text) {
+    console.log('🔍 Starting sentiment analysis for text:', text);
+    console.log('🔍 Environment check:');
+    console.log('  - languageKey exists:', !!languageKey);
+    console.log('  - languageEndpoint:', languageEndpoint);
+    console.log('  - translatorKey exists:', !!translatorKey);
+    console.log('  - translatorEndpoint:', translatorEndpoint);
+
+    if (!languageKey || !languageEndpoint) {
+        const error = 'Azure Language Service credentials not configured';
+        console.error('❌', error);
+        return {
+            originalComment: text,
+            error: error,
+            detectedLanguage: 'unknown',
+            japaneseTranslation: null,
+            analysisLanguage: 'unknown',
+            sentiment: 'unknown',
+            confidenceScores: { positive: 0, neutral: 0, negative: 0 },
+            wasTranslated: false
+        };
+    }
+
     try {
-        console.log('🔍 Starting sentiment analysis for text:', text.substring(0, 50));
-        
         // Step 1: Detect language
-        console.log('🔍 Detecting language...');
-        const detectRes = await axios.post(
-            `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`,
-            {
-                kind: "LanguageDetection",
-                parameters: { modelVersion: "latest" },
-                analysisInput: { documents: [{ id: "1", text }] }
-            },
-            {
-                headers: {
-                    'Ocp-Apim-Subscription-Key': languageKey,
-                    'Content-Type': 'application/json',
-                }
+        console.log('🔍 Step 1: Detecting language...');
+        const detectUrl = `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`;
+        console.log('🔍 Language detection URL:', detectUrl);
+        
+        const detectRequestBody = {
+            kind: "LanguageDetection",
+            parameters: { modelVersion: "latest" },
+            analysisInput: { documents: [{ id: "1", text }] }
+        };
+        console.log('🔍 Language detection request body:', JSON.stringify(detectRequestBody, null, 2));
+
+        const detectRes = await axios.post(detectUrl, detectRequestBody, {
+            headers: {
+                'Ocp-Apim-Subscription-Key': languageKey,
+                'Content-Type': 'application/json',
             }
-        );
+        });
+        
+        console.log('🔍 Language detection response status:', detectRes.status);
+        console.log('🔍 Language detection response data:', JSON.stringify(detectRes.data, null, 2));
         
         // Check if language detection was successful
         if (!detectRes.data.results || !detectRes.data.results.documents || detectRes.data.results.documents.length === 0) {
@@ -49,6 +74,10 @@ async function analyzeComment(text) {
             throw new Error(`Language detection error: ${languageDoc.error.message}`);
         }
         
+        if (!languageDoc.detectedLanguage || !languageDoc.detectedLanguage.iso6391Name) {
+            throw new Error('Language detection failed - no language detected');
+        }
+        
         const detectedLanguage = languageDoc.detectedLanguage.iso6391Name;
         console.log('🌐 Detected language:', detectedLanguage);
 
@@ -58,17 +87,24 @@ async function analyzeComment(text) {
         
         if (!isLanguageSupported) {
             console.log('🔄 Language not supported for sentiment analysis, translating to Japanese...');
-            const translateRes = await axios.post(
-                `${translatorEndpoint}translate?api-version=3.0&to=ja`,
-                [{ text }],
-                {
-                    headers: {
-                        'Ocp-Apim-Subscription-Key': translatorKey,
-                        'Ocp-Apim-Subscription-Region': translatorRegion,
-                        'Content-Type': 'application/json'
-                    }
+            
+            if (!translatorKey || !translatorEndpoint) {
+                throw new Error('Translation required but translator credentials not configured');
+            }
+            
+            const translateUrl = `${translatorEndpoint}translate?api-version=3.0&to=ja`;
+            console.log('🔄 Translation URL:', translateUrl);
+            
+            const translateRes = await axios.post(translateUrl, [{ text }], {
+                headers: {
+                    'Ocp-Apim-Subscription-Key': translatorKey,
+                    'Ocp-Apim-Subscription-Region': translatorRegion,
+                    'Content-Type': 'application/json'
                 }
-            );
+            });
+            
+            console.log('🔄 Translation response status:', translateRes.status);
+            console.log('🔄 Translation response data:', JSON.stringify(translateRes.data, null, 2));
             
             if (!translateRes.data || translateRes.data.length === 0 || !translateRes.data[0].translations) {
                 throw new Error('Translation failed - no translation returned');
@@ -83,27 +119,31 @@ async function analyzeComment(text) {
         // Step 3: Sentiment analysis
         const sentimentLanguage = isLanguageSupported ? detectedLanguage : 'ja';
         const textToAnalyze = isLanguageSupported ? text : japaneseTranslation;
-        console.log('😊 Analyzing sentiment using language:', sentimentLanguage);
+        console.log('😊 Step 3: Analyzing sentiment...');
+        console.log('😊 Using language:', sentimentLanguage);
         console.log('😊 Text to analyze:', textToAnalyze);
         
-        const sentimentRes = await axios.post(
-            `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`,
-            {
-                kind: "SentimentAnalysis",
-                parameters: { modelVersion: "latest" },
-                analysisInput: {
-                    documents: [{ id: "1", language: sentimentLanguage, text: textToAnalyze }]
-                }
-            },
-            {
-                headers: {
-                    'Ocp-Apim-Subscription-Key': languageKey,
-                    'Content-Type': 'application/json',
-                }
-            }
-        );
+        const sentimentUrl = `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`;
+        console.log('😊 Sentiment analysis URL:', sentimentUrl);
         
-        console.log('🔍 Sentiment API response structure:', JSON.stringify(sentimentRes.data, null, 2));
+        const sentimentRequestBody = {
+            kind: "SentimentAnalysis",
+            parameters: { modelVersion: "latest" },
+            analysisInput: {
+                documents: [{ id: "1", language: sentimentLanguage, text: textToAnalyze }]
+            }
+        };
+        console.log('😊 Sentiment analysis request body:', JSON.stringify(sentimentRequestBody, null, 2));
+
+        const sentimentRes = await axios.post(sentimentUrl, sentimentRequestBody, {
+            headers: {
+                'Ocp-Apim-Subscription-Key': languageKey,
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        console.log('😊 Sentiment analysis response status:', sentimentRes.status);
+        console.log('😊 Sentiment analysis response data:', JSON.stringify(sentimentRes.data, null, 2));
 
         // Check if sentiment analysis was successful
         if (!sentimentRes.data.results || !sentimentRes.data.results.documents || sentimentRes.data.results.documents.length === 0) {
@@ -111,28 +151,68 @@ async function analyzeComment(text) {
         }
         
         const sentimentDoc = sentimentRes.data.results.documents[0];
+        console.log('😊 Sentiment document:', JSON.stringify(sentimentDoc, null, 2));
+        
         if (sentimentDoc.error) {
-            throw new Error(`Sentiment analysis error: ${sentimentDoc.error.message}`);
+            throw new Error(`Sentiment analysis error: ${JSON.stringify(sentimentDoc.error)}`);
         }
 
-        // Extract confidence scores safely
+        // Extract confidence scores with detailed logging
+        console.log('😊 Extracting confidence scores...');
+        console.log('😊 sentimentDoc.confidenceScores:', JSON.stringify(sentimentDoc.confidenceScores, null, 2));
+        
         let confidenceScores = {};
+        
         if (sentimentDoc.confidenceScores) {
-            confidenceScores = {
-                positive: sentimentDoc.confidenceScores.positive || 0,
-                neutral: sentimentDoc.confidenceScores.neutral || 0,
-                negative: sentimentDoc.confidenceScores.negative || 0
-            };
+            // Try different possible property names
+            if (typeof sentimentDoc.confidenceScores === 'object') {
+                console.log('😊 confidenceScores is an object');
+                console.log('😊 Available properties:', Object.keys(sentimentDoc.confidenceScores));
+                
+                confidenceScores = {
+                    positive: sentimentDoc.confidenceScores.positive || sentimentDoc.confidenceScores.Positive || 0,
+                    neutral: sentimentDoc.confidenceScores.neutral || sentimentDoc.confidenceScores.Neutral || 0,
+                    negative: sentimentDoc.confidenceScores.negative || sentimentDoc.confidenceScores.Negative || 0
+                };
+            } else {
+                console.log('😊 confidenceScores is not an object:', typeof sentimentDoc.confidenceScores);
+                throw new Error(`Unexpected confidenceScores format: ${typeof sentimentDoc.confidenceScores}`);
+            }
         } else {
-            // Fallback: create default confidence scores
-            console.warn('⚠️ No confidence scores found, using defaults');
-            const sentiment = sentimentDoc.sentiment;
-            confidenceScores = {
-                positive: sentiment === 'positive' ? 0.8 : 0.1,
-                neutral: sentiment === 'neutral' ? 0.8 : 0.1,
-                negative: sentiment === 'negative' ? 0.8 : 0.1
-            };
+            console.log('⚠️ No confidenceScores property found, checking alternatives...');
+            
+            // Check for alternative property names
+            const altProps = ['confidence_scores', 'scores', 'documentConfidenceScores'];
+            let found = false;
+            
+            for (const prop of altProps) {
+                if (sentimentDoc[prop]) {
+                    console.log(`😊 Found alternative property: ${prop}`);
+                    console.log(`😊 ${prop} value:`, JSON.stringify(sentimentDoc[prop], null, 2));
+                    
+                    const altScores = sentimentDoc[prop];
+                    confidenceScores = {
+                        positive: altScores.positive || altScores.Positive || 0,
+                        neutral: altScores.neutral || altScores.Neutral || 0,
+                        negative: altScores.negative || altScores.Negative || 0
+                    };
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                console.log('⚠️ No confidence scores found, using fallback defaults');
+                const sentiment = sentimentDoc.sentiment;
+                confidenceScores = {
+                    positive: sentiment === 'positive' ? 0.8 : 0.1,
+                    neutral: sentiment === 'neutral' ? 0.8 : 0.1,
+                    negative: sentiment === 'negative' ? 0.8 : 0.1
+                };
+            }
         }
+
+        console.log('😊 Final confidence scores:', JSON.stringify(confidenceScores, null, 2));
 
         // Return result with proper structure
         const result = {
@@ -145,14 +225,15 @@ async function analyzeComment(text) {
             wasTranslated: !isLanguageSupported
         };
 
-        console.log('✅ Analysis complete:', result.sentiment, `(confidence: ${Math.round((confidenceScores[result.sentiment] || 0) * 100)}%)`);
+        console.log('✅ Analysis complete:', JSON.stringify(result, null, 2));
         return result;
 
     } catch (error) {
         console.error('❌ Sentiment analysis failed:', error.message);
+        console.error('❌ Error stack:', error.stack);
         if (error.response) {
             console.error('❌ Response status:', error.response.status);
-            console.error('❌ Response headers:', error.response.headers);
+            console.error('❌ Response headers:', JSON.stringify(error.response.headers, null, 2));
             console.error('❌ Response data:', JSON.stringify(error.response.data, null, 2));
         }
         
