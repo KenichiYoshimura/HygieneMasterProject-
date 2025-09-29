@@ -81,46 +81,56 @@ async function analyzeComment(text) {
         const detectedLanguage = languageDoc.detectedLanguage.iso6391Name;
         console.log('🌐 Detected language:', detectedLanguage);
 
-        // Step 2: Check if we need translation
-        const isLanguageSupported = supportedLanguages.has(detectedLanguage);
+        // Step 2: Always translate to Japanese (unless already Japanese)
         let japaneseTranslation = null;
         
-        if (!isLanguageSupported) {
-            console.log('🔄 Language not supported for sentiment analysis, translating to Japanese...');
+        if (detectedLanguage !== 'ja') {
+            console.log('🔄 Translating to Japanese for report display...');
             
             if (!translatorKey || !translatorEndpoint) {
-                throw new Error('Translation required but translator credentials not configured');
-            }
-            
-            const translateUrl = `${translatorEndpoint}translate?api-version=3.0&to=ja`;
-            console.log('🔄 Translation URL:', translateUrl);
-            
-            const translateRes = await axios.post(translateUrl, [{ text }], {
-                headers: {
-                    'Ocp-Apim-Subscription-Key': translatorKey,
-                    'Ocp-Apim-Subscription-Region': translatorRegion,
-                    'Content-Type': 'application/json'
+                console.warn('⚠️ Translation credentials not configured - skipping translation');
+                japaneseTranslation = null;
+            } else {
+                const translateUrl = `${translatorEndpoint}translate?api-version=3.0&to=ja`;
+                console.log('🔄 Translation URL:', translateUrl);
+                
+                try {
+                    const translateRes = await axios.post(translateUrl, [{ text }], {
+                        headers: {
+                            'Ocp-Apim-Subscription-Key': translatorKey,
+                            'Ocp-Apim-Subscription-Region': translatorRegion,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    console.log('🔄 Translation response status:', translateRes.status);
+                    console.log('🔄 Translation response data:', JSON.stringify(translateRes.data, null, 2));
+                    
+                    if (translateRes.data && translateRes.data.length > 0 && translateRes.data[0].translations) {
+                        japaneseTranslation = translateRes.data[0].translations[0].text;
+                        console.log('🇯🇵 Japanese translation:', japaneseTranslation);
+                    } else {
+                        console.warn('⚠️ Translation failed - no translation returned');
+                        japaneseTranslation = null;
+                    }
+                } catch (translateError) {
+                    console.warn('⚠️ Translation failed:', translateError.message);
+                    japaneseTranslation = null;
                 }
-            });
-            
-            console.log('🔄 Translation response status:', translateRes.status);
-            console.log('🔄 Translation response data:', JSON.stringify(translateRes.data, null, 2));
-            
-            if (!translateRes.data || translateRes.data.length === 0 || !translateRes.data[0].translations) {
-                throw new Error('Translation failed - no translation returned');
             }
-            
-            japaneseTranslation = translateRes.data[0].translations[0].text;
-            console.log('🇯🇵 Japanese translation:', japaneseTranslation);
         } else {
-            console.log('✅ Language supported, using original text for sentiment analysis');
+            console.log('✅ Text is already in Japanese - no translation needed');
+            japaneseTranslation = null; // No translation needed for Japanese text
         }
 
-        // Step 3: Sentiment analysis
+        // Step 3: Determine which text to use for sentiment analysis
+        const isLanguageSupported = supportedLanguages.has(detectedLanguage);
         const sentimentLanguage = isLanguageSupported ? detectedLanguage : 'ja';
-        const textToAnalyze = isLanguageSupported ? text : japaneseTranslation;
+        const textToAnalyze = isLanguageSupported ? text : (japaneseTranslation || text);
+        
         console.log('😊 Step 3: Analyzing sentiment...');
-        console.log('😊 Using language:', sentimentLanguage);
+        console.log('😊 Language supported for sentiment analysis:', isLanguageSupported);
+        console.log('😊 Using language for analysis:', sentimentLanguage);
         console.log('😊 Text to analyze:', textToAnalyze);
         
         const sentimentUrl = `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`;
@@ -218,11 +228,11 @@ async function analyzeComment(text) {
         const result = {
             originalComment: text,
             detectedLanguage,
-            japaneseTranslation,
+            japaneseTranslation,                    // Always try to provide translation (null if Japanese or translation failed)
             analysisLanguage: sentimentLanguage,
             sentiment: sentimentDoc.sentiment,
             confidenceScores: confidenceScores,
-            wasTranslated: !isLanguageSupported
+            wasTranslated: !isLanguageSupported     // True if sentiment analysis used translated text
         };
 
         console.log('✅ Analysis complete:', JSON.stringify(result, null, 2));
