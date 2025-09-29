@@ -8,6 +8,7 @@ const {
 } = require('./sendToSharePoint');
 const { analyzeComment } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
+const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
 /**
  * Prepares general management reports from structured data and uploads to SharePoint
@@ -238,135 +239,243 @@ function generateTextReport(structuredData, originalFileName, context) {
 function generateHtmlReport(structuredData, originalFileName, context) {
     const fileNameParts = parseFileName(originalFileName, context);
 
-    const tableRows = structuredData.dailyRecords.map(record => `
-        <tr>
-            <td>${String(record.day).padStart(2, '0')}</td>
-            <td>${record.Cat1Status}</td>
-            <td>${record.Cat2Status}</td>
-            <td>${record.Cat3Status}</td>
-            <td>${record.Cat4Status}</td>
-            <td>${record.Cat5Status}</td>
-            <td>${record.Cat6Status}</td>
-            <td>${record.Cat7Status}</td>
-            <td>${record.comment !== "not found" ? record.comment : '--'}</td>
-            <td>${record.approverStatus}</td>
-        </tr>
-    `).join('\n');
+    const tableRows = structuredData.dailyRecords.map(record => {
+        const statusClass = (status) => {
+            switch(status) {
+                case '良': return 'status-good';
+                case '否': return 'status-bad';
+                case '無': return 'status-none';
+                default: return 'status-neutral';
+            }
+        };
 
-    // Generate detailed sentiment analysis table
+        return `
+        <tr class="data-row">
+            <td class="date-cell">${String(record.day).padStart(2, '0')}</td>
+            <td><span class="status-badge ${statusClass(record.Cat1Status)}">${record.Cat1Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat2Status)}">${record.Cat2Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat3Status)}">${record.Cat3Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat4Status)}">${record.Cat4Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat5Status)}">${record.Cat5Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat6Status)}">${record.Cat6Status}</span></td>
+            <td><span class="status-badge ${statusClass(record.Cat7Status)}">${record.Cat7Status}</span></td>
+            <td class="comment-cell">${record.comment !== "not found" ? record.comment : '--'}</td>
+            <td><span class="status-badge ${statusClass(record.approverStatus)}">${record.approverStatus}</span></td>
+        </tr>
+        `;
+    }).join('\n');
+
     const sentimentRows = structuredData.dailyRecords
         .filter(record => record.sentimentAnalysis && !record.sentimentAnalysis.error)
         .map(record => {
             const sentiment = record.sentimentAnalysis;
+            const sentimentClass = `sentiment-${sentiment.sentiment}`;
+            const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+            
             return `
-        <tr>
-            <td>${String(record.day).padStart(2, '0')}</td>
-            <td>${sentiment.originalComment}</td>
-            <td>${sentiment.detectedLanguage}</td>
-            <td>${sentiment.japaneseTranslation}</td>
-            <td>${sentiment.analysisLanguage}</td>
-            <td>${sentiment.sentiment}</td>
-            <td>
-                👍 ${sentiment.confidenceScores.positive || 0} /
-                😐 ${sentiment.confidenceScores.neutral || 0} /
-                👎 ${sentiment.confidenceScores.negative || 0}
+        <tr class="sentiment-row">
+            <td class="date-cell">${String(record.day).padStart(2, '0')}</td>
+            <td class="comment-text">${sentiment.originalComment}</td>
+            <td class="language-tag">${sentiment.detectedLanguage}</td>
+            <td class="translation-text">${sentiment.japaneseTranslation}</td>
+            <td class="language-tag">${sentiment.analysisLanguage}</td>
+            <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
+            <td class="confidence-bar">
+                <div class="confidence-container">
+                    <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
+                    <span class="confidence-text">${confidence}%</span>
+                </div>
             </td>
         </tr>
             `;
         }).join('\n');
 
-    // Calculate category summary
     const categorySummary = calculateCategorySummary(structuredData);
+    const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
+    const complianceRate = Math.round((categorySummary.allGoodDays / structuredData.summary.recordedDays) * 100);
 
     return `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>一般衛生管理の実施記録</title>
-  <style>
-    body { font-family: 'Meiryo', 'Yu Gothic', sans-serif; margin: 2em; }
-    h1, h2, h3 { color: #333; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
-    th, td { border: 1px solid #aaa; padding: 0.5em; text-align: center; }
-    th { background: #e0f7fa; }
-    tr:nth-child(even) { background: #f9f9f9; }
-    .summary { margin-bottom: 2em; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一般衛生管理レポート - ${structuredData.metadata.location}</title>
+    <style>
+        ${getReportStyles('general')}
+        
+        /* Dynamic CSS variables for compliance rates */
+        :root {
+            --compliance-color: ${complianceRate >= 80 ? '#27ae60' : complianceRate >= 60 ? '#f39c12' : '#e74c3c'};
+        }
+    </style>
 </head>
 <body>
-  <h1>一般衛生管理の実施記録</h1>
-  <div class="summary">
-    <strong>提出日：</strong>${fileNameParts.submissionDate}<br>
-    <strong>提出者：</strong>${fileNameParts.senderEmail}<br>
-    <strong>ファイル名：</strong>${fileNameParts.originalFileName}<br>
-    <strong>店舗名：</strong>${structuredData.metadata.location}<br>
-    <strong>年月：</strong>${structuredData.metadata.yearMonth}
-  </div>
-  <h3>管理記録表</h3>
-  <table>
-    <tr>
-      <th>日付</th>
-      <th>Cat 1</th>
-      <th>Cat 2</th>
-      <th>Cat 3</th>
-      <th>Cat 4</th>
-      <th>Cat 5</th>
-      <th>Cat 6</th>
-      <th>Cat 7</th>
-      <th>特記事項</th>
-      <th>確認者</th>
-    </tr>
-    ${tableRows}
-  </table>
-  <h3>サマリー</h3>
-  <ul>
-    <li>記録日数：${structuredData.summary.recordedDays}日</li>
-    <li>全項目「良」達成日数：${categorySummary.allGoodDays}日</li>
-    <li>「否」あり日数：${categorySummary.anyNgDays}日</li>
-    <li>コメント記入日数：${structuredData.summary.daysWithComments}日</li>
-    <li>カテゴリごとの「否」回数：
-      <ul>
-        ${categorySummary.ngCounts.map((count, index) => 
-          `<li>Cat ${index + 1}: ${count}回</li>`
-        ).join('\n')}
-      </ul>
-    </li>
-  </ul>
-  
-    <h3>センチメント分析レポート</h3>
-    <table>
-      <tr>
-        <th>日付</th>
-        <th>コメント（原文）</th>
-        <th>検出言語</th>
-        <th>日本語訳</th>
-        <th>分析言語</th>
-        <th>センチメント</th>
-        <th>スコア</th>
-      </tr>
-      ${sentimentRows}
-    </table>
-  
-  <h3>管理カテゴリ</h3>
-  <table>
-    <tr>
-      <th>カテゴリ</th>
-      <th>説明</th>
-    </tr>
-    ${structuredData.categories.map((cat, index) => `
-      <tr>
-        <td>Cat ${index + 1}</td>
-        <td>${cat.categoryName}</td>
-      </tr>
-    `).join('\n')}
-  </table>
-  <div style="margin-top:2em;">
-    このレポートは HygienMaster システムにより自動生成されました<br>
-    生成日時: ${new Date().toISOString()}
-  </div>
+    <div class="container">
+        <!-- Professional Header -->
+        <header class="header">
+            <h1>一般衛生管理レポート</h1>
+            <div class="subtitle">${structuredData.metadata.location} | ${structuredData.metadata.yearMonth}</div>
+        </header>
+
+        <!-- Executive Summary Cards -->
+        <div class="summary-cards">
+            <div class="summary-card compliance">
+                <div class="card-header">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title">コンプライアンス率</div>
+                </div>
+                <div class="card-value">${complianceRate}%</div>
+                <div class="card-description">全項目良好: ${categorySummary.allGoodDays}/${structuredData.summary.recordedDays}日</div>
+                <div class="progress-bar">
+                    <div class="progress-fill ${complianceRate >= 80 ? '' : complianceRate >= 60 ? 'warning' : 'danger'}" 
+                         style="width: ${complianceRate}%"></div>
+                </div>
+            </div>
+
+            <div class="summary-card comments">
+                <div class="card-header">
+                    <div class="card-icon">💬</div>
+                    <div class="card-title">コメント記入率</div>
+                </div>
+                <div class="card-value">${Math.round((structuredData.summary.daysWithComments / structuredData.summary.recordedDays) * 100)}%</div>
+                <div class="card-description">${structuredData.summary.daysWithComments}/${structuredData.summary.recordedDays}日でコメント記入</div>
+            </div>
+
+            <div class="summary-card sentiment">
+                <div class="card-header">
+                    <div class="card-icon">😊</div>
+                    <div class="card-title">感情分析</div>
+                </div>
+                <div class="card-value">${sentimentSummary.positive + sentimentSummary.neutral + sentimentSummary.negative}</div>
+                <div class="card-description">
+                    👍${sentimentSummary.positive} 😐${sentimentSummary.neutral} 👎${sentimentSummary.negative}
+                </div>
+            </div>
+        </div>
+
+        <!-- Submission Information -->
+        <div class="section">
+            <div class="section-header">
+                <h3>📋 提出情報</h3>
+            </div>
+            <div class="section-content">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                    <div><strong>提出日時:</strong> ${fileNameParts.submissionDate}</div>
+                    <div><strong>提出者:</strong> ${fileNameParts.senderEmail}</div>
+                    <div><strong>ファイル名:</strong> ${fileNameParts.originalFileName}</div>
+                    <div><strong>店舗名:</strong> ${structuredData.metadata.location}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Daily Records Table -->
+        <div class="section">
+            <div class="section-header">
+                <h3>📅 日次管理記録</h3>
+            </div>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日付</th>
+                            <th>Cat 1</th>
+                            <th>Cat 2</th>
+                            <th>Cat 3</th>
+                            <th>Cat 4</th>
+                            <th>Cat 5</th>
+                            <th>Cat 6</th>
+                            <th>Cat 7</th>
+                            <th>特記事項</th>
+                            <th>確認者</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sentiment Analysis Section -->
+        ${sentimentRows ? `
+        <div class="section">
+            <div class="section-header">
+                <h3>🧠 感情分析詳細レポート</h3>
+            </div>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日付</th>
+                            <th>コメント（原文）</th>
+                            <th>検出言語</th>
+                            <th>日本語訳</th>
+                            <th>分析言語</th>
+                            <th>感情判定</th>
+                            <th>信頼度</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sentimentRows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Category Reference -->
+        <div class="section">
+            <div class="section-header">
+                <h3>📚 管理カテゴリ定義</h3>
+            </div>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>カテゴリ</th>
+                            <th>管理項目</th>
+                            <th>NG回数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${structuredData.categories.map((cat, index) => `
+                        <tr>
+                            <td><strong>Cat ${index + 1}</strong></td>
+                            <td style="text-align: left;">${cat.categoryName}</td>
+                            <td>
+                                <span class="status-badge ${categorySummary.ngCounts[index] > 0 ? 'status-bad' : 'status-good'}">
+                                    ${categorySummary.ngCounts[index]}回
+                                </span>
+                            </td>
+                        </tr>
+                        `).join('\n')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div>このレポートは <strong>HygienMaster システム</strong> により自動生成されました</div>
+            <div class="timestamp">生成日時: ${new Date().toLocaleString('ja-JP')}</div>
+        </footer>
+    </div>
+
+    <script>
+        ${getReportScripts()}
+    </script>
 </body>
 </html>`;
+}
+
+function getSentimentIcon(sentiment) {
+    switch (sentiment) {
+        case 'positive': return '😊';
+        case 'negative': return '😞';
+        case 'neutral': return '😐';
+        default: return '❓';
+    }
 }
 
 function calculateCategorySummary(structuredData) {
