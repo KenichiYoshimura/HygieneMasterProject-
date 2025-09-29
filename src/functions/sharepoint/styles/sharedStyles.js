@@ -411,6 +411,54 @@ function getReportStyles(theme = 'general') {
                 -webkit-print-color-adjust: exact;
             }
         }
+
+        /* Additional styles for sentiment analysis and error handling */
+        .no-translation {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .sentiment-summary {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .no-analysis-reason {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 15px;
+        }
+
+        .analysis-error {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+
+        .error-badge {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .sentiment-row.error {
+            background: #fff8f0;
+        }
+
+        .sentiment-row.no-analysis {
+            background: #f8f9fa;
+        }
     `;
 }
 

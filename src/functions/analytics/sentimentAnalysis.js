@@ -50,24 +50,32 @@ async function analyzeComment(text) {
         const detectedLanguage = detectRes.data.results.documents[0].detectedLanguage.iso6391Name;
         console.log('🌐 Detected language:', detectedLanguage);
 
-        // Step 2: Translate to Japanese
-        console.log('🔄 Translating to Japanese...');
-        const translateRes = await axios.post(
-            `${translatorEndpoint}translate?api-version=3.0&to=ja`,
-            [{ text }],
-            {
-                headers: {
-                    'Ocp-Apim-Subscription-Key': translatorKey,
-                    'Ocp-Apim-Subscription-Region': translatorRegion,
-                    'Content-Type': 'application/json'
+        // Step 2: Check if we need translation
+        const isLanguageSupported = supportedLanguages.has(detectedLanguage);
+        let japaneseTranslation = null;
+        
+        if (!isLanguageSupported) {
+            console.log('🔄 Language not supported for sentiment analysis, translating to Japanese...');
+            const translateRes = await axios.post(
+                `${translatorEndpoint}translate?api-version=3.0&to=ja`,
+                [{ text }],
+                {
+                    headers: {
+                        'Ocp-Apim-Subscription-Key': translatorKey,
+                        'Ocp-Apim-Subscription-Region': translatorRegion,
+                        'Content-Type': 'application/json'
+                    }
                 }
-            }
-        );
-        const japaneseTranslation = translateRes.data[0].translations[0].text;
-        console.log('🇯🇵 Japanese translation:', japaneseTranslation);
+            );
+            japaneseTranslation = translateRes.data[0].translations[0].text;
+            console.log('🇯🇵 Japanese translation:', japaneseTranslation);
+        } else {
+            console.log('✅ Language supported, using original text for sentiment analysis');
+        }
 
         // Step 3: Sentiment analysis
-        const sentimentLanguage = supportedLanguages.has(detectedLanguage) ? detectedLanguage : 'ja';
+        const sentimentLanguage = isLanguageSupported ? detectedLanguage : 'ja';
+        const textToAnalyze = isLanguageSupported ? text : japaneseTranslation;
         console.log('😊 Analyzing sentiment using language:', sentimentLanguage);
         
         const sentimentRes = await axios.post(
@@ -76,7 +84,7 @@ async function analyzeComment(text) {
                 kind: "SentimentAnalysis",
                 parameters: { modelVersion: "latest" },
                 analysisInput: {
-                    documents: [{ id: "1", language: sentimentLanguage, text }]
+                    documents: [{ id: "1", language: sentimentLanguage, text: textToAnalyze }]
                 }
             },
             {
@@ -95,10 +103,11 @@ async function analyzeComment(text) {
             japaneseTranslation,
             sentimentAnalysisLanguage: sentimentLanguage,
             sentiment: sentimentDoc.sentiment,
-            scores: sentimentDoc.confidenceScores
+            scores: sentimentDoc.confidenceScores,
+            wasTranslated: !isLanguageSupported
         };
 
-        console.log('✅ Analysis complete:', result.sentiment);
+        console.log('✅ Analysis complete:', result.sentiment, `(analyzed in ${sentimentLanguage})`);
         return result;
 
     } catch (error) {
@@ -136,4 +145,4 @@ async function main() {
 main();
 */
 
-module.exports = { analyzeComment };
+module.exports = { analyzeComment, supportedLanguages };

@@ -6,7 +6,7 @@ const {
     ensureSharePointFolder,
     uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, supportedLanguages } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -59,7 +59,6 @@ async function prepareImportantManagementReport(structuredData, context, base64B
 
 /**
  * Adds sentiment analysis to comments in structured data
- * Modifies the structuredData object in place
  */
 async function addSentimentAnalysisToStructuredData(structuredData, context) {
     for (const record of structuredData.dailyRecords) {
@@ -68,23 +67,32 @@ async function addSentimentAnalysisToStructuredData(structuredData, context) {
                 logMessage(`😊 Analyzing sentiment for comment: "${record.comment.substring(0, 30)}..."`, context);
                 const sentimentResult = await analyzeComment(record.comment);
                 
+                // Add sentiment data to the record - the sentimentResult already contains the correct logic
                 record.sentimentAnalysis = {
                     originalComment: sentimentResult.originalComment,
                     detectedLanguage: sentimentResult.detectedLanguage,
                     japaneseTranslation: sentimentResult.japaneseTranslation,
-                    analysisLanguage: sentimentResult.analysisLanguage,
+                    analysisLanguage: sentimentResult.sentimentAnalysisLanguage,
                     sentiment: sentimentResult.sentiment,
-                    confidenceScores: sentimentResult.scores
+                    confidenceScores: sentimentResult.scores,
+                    wasTranslated: sentimentResult.wasTranslated
                 };
                 
-                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence)`, context);
+                const analysisInfo = sentimentResult.wasTranslated 
+                    ? `translated from ${sentimentResult.detectedLanguage} to ja`
+                    : `analyzed in original language ${sentimentResult.detectedLanguage}`;
+                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence) - ${analysisInfo}`, context);
                 
             } catch (error) {
                 logMessage(`❌ Sentiment analysis failed for comment: ${error.message}`, context);
                 record.sentimentAnalysis = {
                     originalComment: record.comment,
+                    detectedLanguage: 'unknown',
+                    japaneseTranslation: null,
+                    analysisLanguage: 'unknown',
                     error: error.message,
-                    sentiment: "unknown"
+                    sentiment: "unknown",
+                    wasTranslated: false
                 };
             }
         }
@@ -262,30 +270,52 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         `;
     }).join('\n');
 
+    // Updated sentiment rows to show all days with comments
     const sentimentRows = structuredData.dailyRecords
-        .filter(record => record.sentimentAnalysis && !record.sentimentAnalysis.error)
         .map(record => {
-            const sentiment = record.sentimentAnalysis;
-            const sentimentClass = `sentiment-${sentiment.sentiment}`;
-            const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+            const day = String(record.day).padStart(2, '0');
             
-            return `
-        <tr class="sentiment-row">
-            <td class="date-cell">${String(record.day).padStart(2, '0')}</td>
-            <td class="comment-text">${sentiment.originalComment}</td>
-            <td class="language-tag">${sentiment.detectedLanguage}</td>
-            <td class="translation-text">${sentiment.japaneseTranslation}</td>
-            <td class="language-tag">${sentiment.analysisLanguage}</td>
-            <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
-            <td class="confidence-bar">
-                <div class="confidence-container">
-                    <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
-                    <span class="confidence-text">${confidence}%</span>
-                </div>
-            </td>
-        </tr>
-            `;
-        }).join('\n');
+            // Check if sentiment analysis exists and was successful
+            if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
+                const sentiment = record.sentimentAnalysis;
+                const sentimentClass = `sentiment-${sentiment.sentiment}`;
+                const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+                
+                return `
+    <tr class="sentiment-row">
+        <td class="date-cell">${day}</td>
+        <td class="comment-text">${sentiment.originalComment}</td>
+        <td class="language-tag">${sentiment.detectedLanguage}</td>
+        <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
+        <td class="language-tag">${sentiment.analysisLanguage}</td>
+        <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
+        <td class="confidence-bar">
+            <div class="confidence-container">
+                <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
+                <span class="confidence-text">${confidence}%</span>
+            </div>
+        </td>
+    </tr>`;
+            } else if (record.comment && record.comment !== "not found" && record.comment.trim()) {
+                // Show why sentiment analysis wasn't performed
+                let reason = 'コメントなし';
+                if (record.sentimentAnalysis && record.sentimentAnalysis.error) {
+                    reason = '分析エラー';
+                } else {
+                    reason = '未分析';
+                }
+                
+                return `
+    <tr class="sentiment-row no-analysis">
+        <td class="date-cell">${day}</td>
+        <td class="comment-text">${record.comment}</td>
+        <td colspan="5" class="no-analysis-reason">${reason}</td>
+    </tr>`;
+            }
+            return ''; // Skip records with no comments
+        })
+        .filter(row => row) // Remove empty rows
+        .join('\n');
 
     const menuSummary = calculateMenuSummary(structuredData);
     const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
@@ -298,336 +328,140 @@ function generateHtmlReport(structuredData, originalFileName, context) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>重要衛生管理レポート - ${structuredData.metadata.location}</title>
-    <style>
-        ${getReportStyles('important')}
-        
-        /* Dynamic CSS variables for compliance rates */
-        :root {
-            --compliance-color: ${complianceRate >= 80 ? '#27ae60' : complianceRate >= 60 ? '#f39c12' : '#e74c3c'};
-            --daily-check-color: ${dailyCheckRate >= 80 ? '#27ae60' : dailyCheckRate >= 60 ? '#f39c12' : '#e74c3c'};
-        }
-    </style>
+    <title>重要衛生管理の実施記録</title>
+    ${getReportStyles()}
 </head>
 <body>
-    <div class="container">
-        <!-- Professional Header -->
-        <header class="header">
-            <h1>重要衛生管理レポート</h1>
-            <div class="subtitle">${structuredData.metadata.location} | ${structuredData.metadata.yearMonth}</div>
-        </header>
-
-        <!-- Executive Summary Cards -->
-        <div class="summary-cards">
-            <div class="summary-card compliance">
-                <div class="card-header">
-                    <div class="card-icon">📊</div>
-                    <div class="card-title">コンプライアンス率</div>
-                </div>
-                <div class="card-value">${complianceRate}%</div>
-                <div class="card-description">全項目良好: ${menuSummary.allGoodDays}/${structuredData.summary.recordedDays}日</div>
-                <div class="progress-bar">
-                    <div class="progress-fill ${complianceRate >= 80 ? '' : complianceRate >= 60 ? 'warning' : 'danger'}" 
-                         style="width: ${complianceRate}%"></div>
-                </div>
-            </div>
-
-            <div class="summary-card daily-check">
-                <div class="card-header">
-                    <div class="card-icon">✅</div>
-                    <div class="card-title">日常点検完了率</div>
-                </div>
-                <div class="card-value">${dailyCheckRate}%</div>
-                <div class="card-description">${structuredData.summary.dailyCheckCompletedDays}/${structuredData.summary.recordedDays}日で完了</div>
-                <div class="progress-bar">
-                    <div class="progress-fill ${dailyCheckRate >= 80 ? '' : dailyCheckRate >= 60 ? 'warning' : 'danger'}" 
-                         style="width: ${dailyCheckRate}%"></div>
-                </div>
-            </div>
-
-            <div class="summary-card comments">
-                <div class="card-header">
-                    <div class="card-icon">💬</div>
-                    <div class="card-title">コメント記入率</div>
-                </div>
-                <div class="card-value">${Math.round((structuredData.summary.daysWithComments / structuredData.summary.recordedDays) * 100)}%</div>
-                <div class="card-description">${structuredData.summary.daysWithComments}/${structuredData.summary.recordedDays}日でコメント記入</div>
-            </div>
-
-            <div class="summary-card sentiment">
-                <div class="card-header">
-                    <div class="card-icon">😊</div>
-                    <div class="card-title">感情分析</div>
-                </div>
-                <div class="card-value">${sentimentSummary.positive + sentimentSummary.neutral + sentimentSummary.negative}</div>
-                <div class="card-description">
-                    👍${sentimentSummary.positive} 😐${sentimentSummary.neutral} 👎${sentimentSummary.negative}
-                </div>
-            </div>
+    <div class="report-container">
+        <h1>重要衛生管理の実施記録</h1>
+        <p>店舗名: ${structuredData.metadata.location}</p>
+        <p>年月: ${structuredData.metadata.yearMonth}</p>
+        <p>提出日: ${fileNameParts.submissionDate}</p>
+        <p>提出者: ${fileNameParts.senderEmail}</p>
+        <p>ファイル名: ${fileNameParts.originalFileName}</p>
+        
+        <h2>重要管理項目</h2>
+        <ul>
+            ${structuredData.menuItems.map(item => `<li>${item.menuName}</li>`).join('')}
+        </ul>
+        
+        <h2>日次記録</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    ${structuredData.tableHeaders.map(header => `<th>${header}</th>`).join('')}
+                </tr>
+            </thead>
+            <tbody>
+                ${tableRows}
+            </tbody>
+        </table>
+        
+        <h2>感情分析結果</h2>
+        <table class="sentiment-table">
+            <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>コメント</th>
+                    <th>検出言語</th>
+                    <th>翻訳</th>
+                    <th>分析言語</th>
+                    <th>感情</th>
+                    <th>信頼度</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sentimentRows}
+            </tbody>
+        </table>
+        
+        <h2>サマリー</h2>
+        <p>記録された日数: ${structuredData.summary.recordedDays}日</p>
+        <p>コメントのある日数: ${structuredData.summary.daysWithComments}日</p>
+        <p>承認された日数: ${structuredData.summary.approvedDays}日</p>
+        <p>日常点検完了日数: ${structuredData.summary.dailyCheckCompletedDays}日</p>
+        <p>コンプライアンス率: ${complianceRate}%</p>
+        <p>日常点検実施率: ${dailyCheckRate}%</p>
+        
+        <h2>感情分析サマリー</h2>
+        <p>ポジティブ: ${sentimentSummary.positive}件</p>
+        <p>ネガティブ: ${sentimentSummary.negative}件</p>
+        <p>ニュートラル: ${sentimentSummary.neutral}件</p>
+        <p>分析エラー: ${sentimentSummary.errors}件</p>
+        
+        <div class="footer">
+            <p>このレポートは HygienMaster システムにより自動生成されました</p>
+            <p>生成日時: ${new Date().toISOString()}</p>
         </div>
-
-        <!-- Submission Information -->
-        <div class="section">
-            <div class="section-header">
-                <h3>📋 提出情報</h3>
-            </div>
-            <div class="section-content">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-                    <div><strong>提出日時:</strong> ${fileNameParts.submissionDate}</div>
-                    <div><strong>提出者:</strong> ${fileNameParts.senderEmail}</div>
-                    <div><strong>ファイル名:</strong> ${fileNameParts.originalFileName}</div>
-                    <div><strong>店舗名:</strong> ${structuredData.metadata.location}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Daily Records Table -->
-        <div class="section">
-            <div class="section-header">
-                <h3>📅 日次管理記録</h3>
-            </div>
-            <div class="section-content">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>日付</th>
-                            <th>Menu 1</th>
-                            <th>Menu 2</th>
-                            <th>Menu 3</th>
-                            <th>Menu 4</th>
-                            <th>Menu 5</th>
-                            <th>日常点検</th>
-                            <th>特記事項</th>
-                            <th>確認者</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Sentiment Analysis Section -->
-        ${sentimentRows ? `
-        <div class="section">
-            <div class="section-header">
-                <h3>🧠 感情分析詳細レポート</h3>
-            </div>
-            <div class="section-content">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>日付</th>
-                            <th>コメント（原文）</th>
-                            <th>検出言語</th>
-                            <th>日本語訳</th>
-                            <th>分析言語</th>
-                            <th>感情判定</th>
-                            <th>信頼度</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${sentimentRows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        ` : ''}
-
-        <!-- Menu Item Reference -->
-        <div class="section">
-            <div class="section-header">
-                <h3>🍽️ 重要管理項目定義</h3>
-            </div>
-            <div class="section-content">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>メニュー</th>
-                            <th>管理項目</th>
-                            <th>NG回数</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${structuredData.menuItems.map((item, index) => `
-                        <tr>
-                            <td><strong>Menu ${index + 1}</strong></td>
-                            <td style="text-align: left;">${item.menuName}</td>
-                            <td>
-                                <span class="status-badge ${menuSummary.ngCounts[index] > 0 ? 'status-bad' : 'status-good'}">
-                                    ${menuSummary.ngCounts[index]}回
-                                </span>
-                            </td>
-                        </tr>
-                        `).join('\n')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <footer class="footer">
-            <div>このレポートは <strong>HygienMaster システム</strong> により自動生成されました</div>
-            <div class="timestamp">生成日時: ${new Date().toLocaleString('ja-JP')}</div>
-        </footer>
     </div>
-
-    <script>
-        ${getReportScripts()}
-    </script>
+    ${getReportScripts()}
 </body>
-</html>`;
+</html>
+`;
 }
 
-function getSentimentIcon(sentiment) {
-    switch (sentiment) {
-        case 'positive': return '😊';
-        case 'negative': return '😞';
-        case 'neutral': return '😐';
-        default: return '❓';
+function parseFileName(originalFileName, context) {
+    // Improved parsing logic to handle more cases and avoid crashes
+    try {
+        const nameParts = originalFileName.split('_');
+        
+        // Extract date in YYYYMMDD format
+        const datePart = nameParts.find(part => /^\d{8}$/.test(part)) || '';
+        const formattedDate = datePart.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+        
+        // Extract sender email (might be in the format name@example.com or just name)
+        const senderEmail = nameParts.find(part => part.includes('@')) || '';
+        
+        // Original file name without extension
+        const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
+        
+        return {
+            submissionDate: formattedDate,
+            senderEmail: senderEmail,
+            originalFileName: baseFileName
+        };
+    } catch (error) {
+        handleError(error, 'File Name Parsing', context);
+        return {
+            submissionDate: '',
+            senderEmail: '',
+            originalFileName: originalFileName // Fallback to original if parsing fails
+        };
     }
-}
-
-function calculateMenuSummary(structuredData) {
-    const ngCounts = [0, 0, 0, 0, 0]; // Menu1-Menu5
-    let allGoodDays = 0;
-    let anyNgDays = 0;
-
-    structuredData.dailyRecords.forEach(record => {
-        const statuses = [
-            record.Menu1Status,
-            record.Menu2Status,
-            record.Menu3Status,
-            record.Menu4Status,
-            record.Menu5Status
-        ];
-
-        let allGood = true;
-        let hasNg = false;
-
-        statuses.forEach((status, index) => {
-            if (status === "否") {
-                ngCounts[index]++;
-                hasNg = true;
-                allGood = false;
-            } else if (status !== "良") {
-                allGood = false;
-            }
-        });
-
-        // Also check daily check status
-        if (record.dailyCheckStatus !== "良") {
-            allGood = false;
-        }
-
-        if (allGood) allGoodDays++;
-        if (hasNg) anyNgDays++;
-    });
-
-    return {
-        ngCounts,
-        allGoodDays,
-        anyNgDays
-    };
 }
 
 function generateSentimentSummary(dailyRecords) {
-    const summary = {
-        positive: 0,
-        negative: 0,
-        neutral: 0,
-        errors: 0
-    };
+    return dailyRecords.reduce((summary, record) => {
+        if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
+            summary[record.sentimentAnalysis.sentiment] = (summary[record.sentimentAnalysis.sentiment] || 0) + 1;
+        } else {
+            summary.errors = (summary.errors || 0) + 1;
+        }
+        return summary;
+    }, { positive: 0, negative: 0, neutral: 0, errors: 0 });
+}
 
-    dailyRecords.forEach(record => {
-        if (record.sentimentAnalysis) {
-            if (record.sentimentAnalysis.error) {
-                summary.errors++;
-            } else {
-                switch (record.sentimentAnalysis.sentiment) {
-                    case 'positive':
-                        summary.positive++;
-                        break;
-                    case 'negative':
-                        summary.negative++;
-                        break;
-                    case 'neutral':
-                        summary.neutral++;
-                        break;
-                    default:
-                        summary.errors++;
-                }
-            }
+function calculateMenuSummary(structuredData) {
+    const summary = {
+        allGoodDays: 0,
+        someIssuesDays: 0,
+        noRecordsDays: 0,
+        totalDays: structuredData.summary.totalDays
+    };
+    
+    structuredData.dailyRecords.forEach(record => {
+        const menuStatuses = [record.Menu1Status, record.Menu2Status, record.Menu3Status, record.Menu4Status, record.Menu5Status];
+        const allGood = menuStatuses.every(status => status === '良');
+        const someIssues = menuStatuses.some(status => status === '否' || status === '無');
+        
+        if (allGood) {
+            summary.allGoodDays++;
+        } else if (someIssues) {
+            summary.someIssuesDays++;
+        } else {
+            summary.noRecordsDays++;
         }
     });
-
+    
     return summary;
 }
-
-function parseFileName(fileName, context) {
-    logMessage(`🔍 Parsing filename: ${fileName}`, context);
-    
-    try {
-        let submissionTime = '';
-        let senderEmail = '';
-        let originalFileName = fileName;
-        
-        const emailMatch = fileName.match(/\(([^)]*@[^)]*)\)/);
-        if (emailMatch) {
-            senderEmail = emailMatch[1];
-            const emailEndIndex = fileName.indexOf(emailMatch[0]) + emailMatch[0].length;
-            originalFileName = fileName.substring(emailEndIndex).replace(/^\W+/, '').trim();
-        }
-        
-        const timeMatch = fileName.match(/^([^(]+)/);
-        if (timeMatch) {
-            submissionTime = timeMatch[1];
-            if (submissionTime.includes('T')) {
-                try {
-                    const cleanTime = submissionTime.replace(/[^\d]/g, '');
-                    if (cleanTime.length >= 8) {
-                        const year = cleanTime.substring(0, 4);
-                        const month = cleanTime.substring(4, 6);
-                        const day = cleanTime.substring(6, 8);
-                        const hour = cleanTime.substring(8, 10) || '00';
-                        const minute = cleanTime.substring(10, 12) || '00';
-                        
-                        const isoString = `${year}-${month}-${day}T${hour}:${minute}:00`;
-                        const date = new Date(isoString);
-                        
-                        if (!isNaN(date.getTime())) {
-                            submissionTime = date.toLocaleDateString('ja-JP', {
-                                year: 'numeric',
-                                month: '2-digit',
-                                day: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            });
-                        }
-                    }
-                } catch (e) {
-                    logMessage(`⚠️ Date parsing failed: ${e.message}`, context);
-                }
-            }
-        }
-        
-        return {
-            submissionDate: submissionTime || 'Unknown',
-            senderEmail: senderEmail || 'Unknown',
-            originalFileName: originalFileName || fileName
-        };
-        
-    } catch (error) {
-        logMessage(`❌ Filename parsing error: ${error.message}`, context);
-        return {
-            submissionDate: 'Unknown',
-            senderEmail: 'Unknown',
-            originalFileName: fileName
-        };
-    }
-}
-
-module.exports = {
-    prepareImportantManagementReport
-};

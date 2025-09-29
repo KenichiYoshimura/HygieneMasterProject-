@@ -65,22 +65,34 @@ async function addSentimentAnalysisToStructuredData(structuredData, context) {
                 logMessage(`😊 Analyzing sentiment for comment: "${record.comment.substring(0, 30)}..."`, context);
                 const sentimentResult = await analyzeComment(record.comment);
                 
+                // Determine what language was actually used for analysis
+                // If the detected language is supported by sentiment analysis, use original text
+                // Otherwise, use the translated Japanese text
+                const supportedLanguages = ['en', 'ja', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ko']; // Add more as needed
+                const detectedLang = sentimentResult.detectedLanguage;
+                const isLanguageSupported = supportedLanguages.includes(detectedLang);
+                
                 // Add sentiment data to the record
                 record.sentimentAnalysis = {
                     originalComment: sentimentResult.originalComment,
                     detectedLanguage: sentimentResult.detectedLanguage,
-                    japaneseTranslation: sentimentResult.japaneseTranslation,
-                    analysisLanguage: sentimentResult.analysisLanguage,
+                    japaneseTranslation: isLanguageSupported ? sentimentResult.originalComment : sentimentResult.japaneseTranslation,
+                    analysisLanguage: isLanguageSupported ? sentimentResult.detectedLanguage : 'ja',
                     sentiment: sentimentResult.sentiment,
-                    confidenceScores: sentimentResult.scores
+                    confidenceScores: sentimentResult.scores,
+                    wasTranslated: !isLanguageSupported // Track if translation was needed
                 };
                 
-                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence)`, context);
+                const analysisLang = isLanguageSupported ? sentimentResult.detectedLanguage : 'ja';
+                logMessage(`✅ Sentiment: ${sentimentResult.sentiment} (${Math.round(sentimentResult.scores[sentimentResult.sentiment] * 100)}% confidence) - Analyzed in: ${analysisLang}`, context);
                 
             } catch (error) {
                 logMessage(`❌ Sentiment analysis failed for comment: ${error.message}`, context);
                 record.sentimentAnalysis = {
                     originalComment: record.comment,
+                    detectedLanguage: 'unknown',
+                    japaneseTranslation: record.comment,
+                    analysisLanguage: 'unknown',
                     error: error.message,
                     sentiment: "unknown"
                 };
@@ -266,18 +278,21 @@ function generateHtmlReport(structuredData, originalFileName, context) {
     }).join('\n');
 
     const sentimentRows = structuredData.dailyRecords
-        .filter(record => record.sentimentAnalysis && !record.sentimentAnalysis.error)
         .map(record => {
-            const sentiment = record.sentimentAnalysis;
-            const sentimentClass = `sentiment-${sentiment.sentiment}`;
-            const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+            const day = String(record.day).padStart(2, '0');
             
-            return `
+            // Check if sentiment analysis exists and was successful
+            if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
+                const sentiment = record.sentimentAnalysis;
+                const sentimentClass = `sentiment-${sentiment.sentiment}`;
+                const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+                
+                return `
         <tr class="sentiment-row">
-            <td class="date-cell">${String(record.day).padStart(2, '0')}</td>
+            <td class="date-cell">${day}</td>
             <td class="comment-text">${sentiment.originalComment}</td>
             <td class="language-tag">${sentiment.detectedLanguage}</td>
-            <td class="translation-text">${sentiment.japaneseTranslation}</td>
+            <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '翻訳不要'}</td>
             <td class="language-tag">${sentiment.analysisLanguage}</td>
             <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
             <td class="confidence-bar">
@@ -286,13 +301,35 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                     <span class="confidence-text">${confidence}%</span>
                 </div>
             </td>
-        </tr>
-            `;
+        </tr>`;
+            } else {
+                // Show why sentiment analysis wasn't performed
+                let reason = '';
+                if (!record.comment || record.comment === "not found") {
+                    reason = 'コメントなし';
+                } else if (record.sentimentAnalysis && record.sentimentAnalysis.error) {
+                    reason = '分析エラー';
+                } else {
+                    reason = '未分析';
+                }
+                
+                return `
+        <tr class="sentiment-row no-analysis">
+            <td class="date-cell">${day}</td>
+            <td class="comment-text">${record.comment !== "not found" ? record.comment : '--'}</td>
+            <td colspan="5" class="no-analysis-reason">${reason}</td>
+        </tr>`;
+            }
         }).join('\n');
 
     const categorySummary = calculateCategorySummary(structuredData);
     const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
     const complianceRate = Math.round((categorySummary.allGoodDays / structuredData.summary.recordedDays) * 100);
+
+    // Count analysis results for summary info
+    const totalDaysWithComments = structuredData.dailyRecords.filter(r => r.comment && r.comment !== "not found" && r.comment.trim()).length;
+    const successfulAnalyses = structuredData.dailyRecords.filter(r => r.sentimentAnalysis && !r.sentimentAnalysis.error).length;
+    const failedAnalyses = totalDaysWithComments - successfulAnalyses;
 
     return `
 <!DOCTYPE html>
@@ -307,6 +344,31 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         /* Dynamic CSS variables for compliance rates */
         :root {
             --compliance-color: ${complianceRate >= 80 ? '#27ae60' : complianceRate >= 60 ? '#f39c12' : '#e74c3c'};
+        }
+
+        /* Additional styles for translation indicators */
+        .no-translation {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .sentiment-summary {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .no-analysis-reason {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 15px;
         }
     </style>
 </head>
@@ -404,6 +466,9 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                 <h3>🧠 感情分析詳細レポート</h3>
             </div>
             <div class="section-content">
+                <div class="sentiment-summary">
+                    <strong>📊 感情分析結果:</strong> ${totalDaysWithComments}件のコメント中 ${successfulAnalyses}件分析成功${failedAnalyses > 0 ? `、${failedAnalyses}件失敗` : ''}
+                </div>
                 <table>
                     <thead>
                         <tr>
