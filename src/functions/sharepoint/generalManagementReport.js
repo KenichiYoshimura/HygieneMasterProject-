@@ -299,6 +299,16 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
                 const inlineDetails = formatInlineConfidenceDetails(sentiment.confidenceScores);
                 
+                // NEW LOGIC: Always show Japanese text in translation column
+                let translationDisplay;
+                if (sentiment.detectedLanguage === 'ja') {
+                    // If original is Japanese, show the same text
+                    translationDisplay = sentiment.originalComment;
+                } else {
+                    // If original is not Japanese, show translation (or original if translation failed)
+                    translationDisplay = sentiment.japaneseTranslation || sentiment.originalComment;
+                }
+                
                 return `
         <tr class="sentiment-row">
             <td class="date-cell">${day}</td>
@@ -306,7 +316,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             <td class="language-tag">
                 <span class="language-badge">${getLanguageNameInJapanese(sentiment.detectedLanguage)}</span>
             </td>
-            <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
+            <td class="translation-text">${translationDisplay}</td>
             <td class="language-tag">
                 <span class="language-badge">${getLanguageNameInJapanese(sentiment.analysisLanguage)}</span>
             </td>
