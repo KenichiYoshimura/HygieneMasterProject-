@@ -542,70 +542,80 @@ function getReportStyles(theme = 'general') {
             border-left: 3px solid #17a2b8;
         }
 
-        /* Expandable Details Styles */
+        /* Enhanced Expandable Details Styles with debugging */
         .expandable-details {
             margin-top: 8px;
             width: 100%;
+            position: relative;
         }
 
         .details-toggle {
-            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.8em;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s ease;
-            width: 100%;
-            justify-content: center;
-            box-shadow: 0 2px 4px rgba(52, 152, 219, 0.3);
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%) !important;
+            color: white !important;
+            border: none !important;
+            padding: 8px 12px !important;
+            border-radius: 6px !important;
+            font-size: 0.8em !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            transition: all 0.2s ease !important;
+            width: 100% !important;
+            box-shadow: 0 2px 4px rgba(52, 152, 219, 0.3) !important;
+            min-height: 32px !important;
+            outline: none !important;
+            position: relative !important;
+            z-index: 10 !important;
         }
 
         .details-toggle:hover {
-            background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4);
+            background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4) !important;
         }
 
         .details-toggle:active {
-            transform: translateY(0);
+            transform: translateY(0) !important;
+            background: linear-gradient(135deg, #1f5f8b 0%, #1a4971 100%) !important;
+        }
+
+        .details-toggle:focus {
+            outline: 2px solid #3498db !important;
+            outline-offset: 2px !important;
         }
 
         .details-toggle[aria-expanded="true"] {
-            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-            box-shadow: 0 2px 4px rgba(39, 174, 96, 0.3);
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%) !important;
+            box-shadow: 0 2px 4px rgba(39, 174, 96, 0.3) !important;
         }
 
         .details-toggle[aria-expanded="true"]:hover {
-            background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
+            background: linear-gradient(135deg, #229954 0%, #1e8449 100%) !important;
         }
 
         .toggle-icon {
-            transition: transform 0.3s ease;
-            font-size: 0.7em;
+            transition: transform 0.3s ease !important;
+            font-size: 0.7em !important;
+            display: inline-block !important;
         }
 
         .details-toggle[aria-expanded="true"] .toggle-icon {
-            transform: rotate(180deg);
-        }
-
-        .details-toggle[aria-expanded="true"] .toggle-text {
-            content: '閉じる';
+            transform: rotate(180deg) !important;
         }
 
         .details-content {
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            animation: slideDown 0.3s ease;
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%) !important;
+            border: 2px solid #e9ecef !important;
+            border-radius: 8px !important;
+            padding: 15px !important;
+            margin-top: 8px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+            animation: slideDown 0.3s ease !important;
+            position: relative !important;
+            z-index: 5 !important;
         }
 
         @keyframes slideDown {
@@ -622,153 +632,32 @@ function getReportStyles(theme = 'general') {
         }
 
         .details-header {
-            color: #2c3e50;
-            font-size: 0.9em;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #bdc3c7;
-            text-align: center;
+            color: #2c3e50 !important;
+            font-size: 0.9em !important;
+            margin-bottom: 12px !important;
+            padding-bottom: 8px !important;
+            border-bottom: 2px solid #bdc3c7 !important;
+            text-align: center !important;
+            font-weight: bold !important;
         }
 
-        .detail-score-item {
-            display: flex;
-            align-items: center;
-            margin: 8px 0;
-            padding: 8px;
-            background: rgba(255, 255, 255, 0.8);
-            border-radius: 6px;
-            border-left: 4px solid #bdc3c7;
-            transition: all 0.2s ease;
-        }
-
-        .detail-score-item:hover {
-            background: rgba(255, 255, 255, 1);
-            transform: translateX(3px);
-        }
-
-        .detail-score-item.positive {
-            border-left-color: #27ae60;
-        }
-
-        .detail-score-item.neutral {
-            border-left-color: #f39c12;
-        }
-
-        .detail-score-item.negative {
-            border-left-color: #e74c3c;
-        }
-
-        .detail-emoji {
-            margin-right: 10px;
-            font-size: 1.2em;
-            flex-shrink: 0;
-        }
-
-        .detail-label {
-            flex: 0 0 80px;
-            font-weight: 600;
-            color: #2c3e50;
-        }
-
-        .detail-bar {
-            flex: 1;
-            position: relative;
-            background: #ecf0f1;
-            height: 20px;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-left: 12px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .detail-fill {
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.8s ease;
-            position: relative;
-        }
-
-        .detail-fill.positive {
-            background: linear-gradient(90deg, #27ae60, #2ecc71);
-        }
-
-        .detail-fill.neutral {
-            background: linear-gradient(90deg, #f39c12, #f1c40f);
-        }
-
-        .detail-fill.negative {
-            background: linear-gradient(90deg, #e74c3c, #ec7063);
-        }
-
-        .detail-percentage {
+        /* Debug styles */
+        .details-toggle::before {
+            content: '';
             position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-weight: 700;
-            font-size: 0.8em;
-            color: #2c3e50;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 1px 4px;
-            border-radius: 3px;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: transparent;
+            border: 1px dashed red;
+            opacity: 0;
+            pointer-events: none;
         }
 
-        /* Responsive adjustments for expandable details */
-        @media (max-width: 768px) {
-            .details-toggle {
-                font-size: 0.75em;
-                padding: 5px 8px;
-            }
-            
-            .details-content {
-                padding: 12px;
-            }
-            
-            .detail-label {
-                flex: 0 0 60px;
-                font-size: 0.8em;
-            }
-            
-            .detail-bar {
-                height: 16px;
-                margin-left: 8px;
-            }
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .container {
-                margin: 10px;
-                padding: 15px;
-            }
-            
-            .summary-cards {
-                grid-template-columns: 1fr;
-            }
-            
-            .header h1 {
-                font-size: 1.8em;
-            }
-            
-            table {
-                font-size: 0.85em;
-            }
-            
-            .section-content {
-                padding: 20px;
-            }
-
-            .language-badge {
-                font-size: 0.75em;
-                padding: 4px 8px;
-                min-width: 50px;
-            }
-            
-            .confidence-details {
-                font-size: 0.8em;
-                padding: 10px 12px;
-                min-width: 160px;
-            }
+        /* Show debug border on hover (remove in production) */
+        .details-toggle:hover::before {
+            opacity: 0.3;
         }
 
         /* Print Styles */
@@ -844,38 +733,66 @@ function getReportStyles(theme = 'general') {
  */
 function getReportScripts() {
     return `
-        // Add interactivity for collapsible sections
-        document.querySelectorAll('.section-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const content = header.nextElementSibling;
-                const icon = header.querySelector('.toggle-icon');
-                
-                if (content.style.display === 'none') {
-                    content.style.display = 'block';
-                    if (icon) icon.style.transform = 'rotate(0deg)';
-                } else {
-                    content.style.display = 'none';
-                    if (icon) icon.style.transform = 'rotate(-90deg)';
-                }
-            });
-        });
-
         // Toggle expandable details sections
         function toggleDetails(recordId) {
+            console.log('Toggling details for:', recordId);
+            
             const detailsElement = document.getElementById('details-' + recordId);
-            const toggleButton = document.querySelector('[onclick="toggleDetails(\'' + recordId + '\')"]');
-            const toggleText = toggleButton.querySelector('.toggle-text');
+            const toggleButton = document.querySelector('[onclick*="' + recordId + '"]');
+            const toggleText = toggleButton ? toggleButton.querySelector('.toggle-text') : null;
+            
+            if (!detailsElement) {
+                console.error('Details element not found for:', recordId);
+                return;
+            }
+            
+            console.log('Current display:', detailsElement.style.display);
             
             if (detailsElement.style.display === 'none' || detailsElement.style.display === '') {
                 detailsElement.style.display = 'block';
-                toggleButton.setAttribute('aria-expanded', 'true');
-                toggleText.textContent = '閉じる';
+                if (toggleButton) {
+                    toggleButton.setAttribute('aria-expanded', 'true');
+                }
+                if (toggleText) {
+                    toggleText.textContent = '閉じる';
+                }
+                console.log('Opened details for:', recordId);
             } else {
                 detailsElement.style.display = 'none';
-                toggleButton.setAttribute('aria-expanded', 'false');
-                toggleText.textContent = '詳細';
+                if (toggleButton) {
+                    toggleButton.setAttribute('aria-expanded', 'false');
+                }
+                if (toggleText) {
+                    toggleText.textContent = '詳細';
+                }
+                console.log('Closed details for:', recordId);
             }
         }
+
+        // Alternative event listener approach for better reliability
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📊 Report page initialized with expandable sentiment details');
+            
+            // Add click listeners to all detail toggle buttons
+            const toggleButtons = document.querySelectorAll('.details-toggle');
+            console.log('Found', toggleButtons.length, 'toggle buttons');
+            
+            toggleButtons.forEach(function(button) {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    
+                    const onclick = button.getAttribute('onclick');
+                    if (onclick) {
+                        const recordIdMatch = onclick.match(/toggleDetails\\('([^']+)'\\)/);
+                        if (recordIdMatch) {
+                            const recordId = recordIdMatch[1];
+                            toggleDetails(recordId);
+                        }
+                    }
+                });
+            });
+        });
 
         // Close all expanded details when clicking outside
         document.addEventListener('click', function(event) {
@@ -884,7 +801,9 @@ function getReportScripts() {
                 const allToggleButtons = document.querySelectorAll('.details-toggle');
                 
                 allDetails.forEach(function(detail) {
-                    detail.style.display = 'none';
+                    if (detail.style.display === 'block') {
+                        detail.style.display = 'none';
+                    }
                 });
                 
                 allToggleButtons.forEach(function(button) {
@@ -916,16 +835,10 @@ function getReportScripts() {
                 });
             }
         });
-
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('📊 Report page initialized with expandable sentiment details');
-        });
     `;
 }
 
 // Make sure this file exists and is properly structured
 module.exports = {
     getReportStyles,
-    getReportScripts
-};
+    getReportScripts};

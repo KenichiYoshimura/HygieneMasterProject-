@@ -122,11 +122,12 @@ async function analyzeComment(text) {
 
 /**
  * Converts language code to Japanese language name
- * @param {string} languageCode - ISO language code (e.g., 'en', 'ja')
+ * @param {string} languageCode - ISO language code or Azure-specific code
  * @returns {string} Japanese language name
  */
 function getLanguageNameInJapanese(languageCode) {
     const languageNames = {
+        // Standard ISO codes
         'ja': '日本語',
         'en': '英語',
         'zh': '中国語',
@@ -154,10 +155,74 @@ function getLanguageNameInJapanese(languageCode) {
         'pl': 'ポーランド語',
         'tr': 'トルコ語',
         'he': 'ヘブライ語',
+        
+        // Azure Cognitive Services specific language codes
+        'zh_chs': '中国語（簡体）',
+        'zh_cht': '中国語（繁体）',
+        'zh-hans': '中国語（簡体）',
+        'zh-hant': '中国語（繁体）',
+        'en_us': '英語（米国）',
+        'en_gb': '英語（英国）',
+        'en_au': '英語（豪州）',
+        'en_ca': '英語（カナダ）',
+        'pt_br': 'ポルトガル語（ブラジル）',
+        'pt_pt': 'ポルトガル語（ポルトガル）',
+        'es_es': 'スペイン語（スペイン）',
+        'es_mx': 'スペイン語（メキシコ）',
+        'fr_fr': 'フランス語（フランス）',
+        'fr_ca': 'フランス語（カナダ）',
+        'de_de': 'ドイツ語（ドイツ）',
+        'it_it': 'イタリア語（イタリア）',
+        'ja_jp': '日本語（日本）',
+        'ko_kr': '韓国語（韓国）',
+        'ru_ru': 'ロシア語（ロシア）',
+        'ar_sa': 'アラビア語（サウジアラビア）',
+        'hi_in': 'ヒンディー語（インド）',
+        'th_th': 'タイ語（タイ）',
+        'vi_vn': 'ベトナム語（ベトナム）',
+        'id_id': 'インドネシア語（インドネシア）',
+        'ms_my': 'マレー語（マレーシア）',
+        'tl_ph': 'フィリピン語（フィリピン）',
+        'nl_nl': 'オランダ語（オランダ）',
+        'sv_se': 'スウェーデン語（スウェーデン）',
+        'da_dk': 'デンマーク語（デンマーク）',
+        'no_no': 'ノルウェー語（ノルウェー）',
+        'fi_fi': 'フィンランド語（フィンランド）',
+        'pl_pl': 'ポーランド語（ポーランド）',
+        'tr_tr': 'トルコ語（トルコ）',
+        'he_il': 'ヘブライ語（イスラエル）',
+        
+        // Additional common variations
+        'cmn': '中国語（標準）',
+        'yue': '中国語（広東）',
+        'wuu': '中国語（呉語）',
+        
+        // Fallback
         'unknown': '不明'
     };
     
-    return languageNames[languageCode?.toLowerCase()] || `${languageCode?.toUpperCase() || '不明'}`;
+    // Convert to lowercase for case-insensitive matching
+    const normalizedCode = languageCode?.toLowerCase();
+    
+    // Try exact match first
+    if (languageNames[normalizedCode]) {
+        return languageNames[normalizedCode];
+    }
+    
+    // Try without underscores (convert zh_chs to zh-chs)
+    const dashFormat = normalizedCode?.replace('_', '-');
+    if (languageNames[dashFormat]) {
+        return languageNames[dashFormat];
+    }
+    
+    // Try just the main language part (zh_chs -> zh)
+    const mainLang = normalizedCode?.split(/[_-]/)[0];
+    if (languageNames[mainLang]) {
+        return `${languageNames[mainLang]}（詳細不明）`;
+    }
+    
+    // Final fallback - return the original code in uppercase
+    return languageCode?.toUpperCase() || '不明';
 }
 
 /**
@@ -211,7 +276,7 @@ function formatExpandableConfidenceDetails(confidenceScores, recordId) {
     
     return `
         <div class="expandable-details">
-            <button class="details-toggle" onclick="toggleDetails('${recordId}')" aria-expanded="false">
+            <button class="details-toggle" onclick="toggleDetails('${recordId}')" aria-expanded="false" type="button">
                 <span class="toggle-text">詳細</span>
                 <span class="toggle-icon">▼</span>
             </button>
@@ -254,6 +319,5 @@ module.exports = {
     analyzeComment, 
     supportedLanguages, 
     getLanguageNameInJapanese, 
-    formatConfidenceDetails,
     formatExpandableConfidenceDetails
 };
