@@ -6,7 +6,7 @@ const {
     ensureSharePointFolder,
     uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, supportedLanguages } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatConfidenceDetails } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -285,9 +285,9 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         <tr class="sentiment-row">
             <td class="date-cell">${day}</td>
             <td class="comment-text">${sentiment.originalComment}</td>
-            <td class="language-tag">${sentiment.detectedLanguage}</td>
+            <td class="language-tag">${getLanguageNameInJapanese(sentiment.detectedLanguage)}</td>
             <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
-            <td class="language-tag">${sentiment.analysisLanguage}</td>
+            <td class="language-tag">${getLanguageNameInJapanese(sentiment.analysisLanguage)}</td>
             <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
             <td class="confidence-bar">
                 <div class="confidence-container">

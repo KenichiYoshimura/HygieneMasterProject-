@@ -120,6 +120,69 @@ async function analyzeComment(text) {
     }
 }
 
+/**
+ * Converts language code to Japanese language name
+ * @param {string} languageCode - ISO language code (e.g., 'en', 'ja')
+ * @returns {string} Japanese language name
+ */
+function getLanguageNameInJapanese(languageCode) {
+    const languageNames = {
+        'ja': '日本語',
+        'en': '英語',
+        'zh': '中国語',
+        'zh-cn': '中国語（簡体）',
+        'zh-tw': '中国語（繁体）',
+        'ko': '韓国語',
+        'es': 'スペイン語',
+        'fr': 'フランス語',
+        'de': 'ドイツ語',
+        'it': 'イタリア語',
+        'pt': 'ポルトガル語',
+        'ru': 'ロシア語',
+        'ar': 'アラビア語',
+        'hi': 'ヒンディー語',
+        'th': 'タイ語',
+        'vi': 'ベトナム語',
+        'id': 'インドネシア語',
+        'ms': 'マレー語',
+        'tl': 'フィリピン語',
+        'nl': 'オランダ語',
+        'sv': 'スウェーデン語',
+        'da': 'デンマーク語',
+        'no': 'ノルウェー語',
+        'fi': 'フィンランド語',
+        'pl': 'ポーランド語',
+        'tr': 'トルコ語',
+        'he': 'ヘブライ語',
+        'unknown': '不明'
+    };
+    
+    return languageNames[languageCode?.toLowerCase()] || `${languageCode?.toUpperCase() || '不明'}`;
+}
+
+/**
+ * Formats confidence scores into detailed breakdown
+ * @param {Object} confidenceScores - Sentiment confidence scores
+ * @returns {string} Formatted HTML string with confidence details
+ */
+function formatConfidenceDetails(confidenceScores) {
+    if (!confidenceScores) return '';
+    
+    const scores = [
+        { label: 'ポジティブ', value: confidenceScores.positive || 0, emoji: '😊', class: 'positive' },
+        { label: 'ニュートラル', value: confidenceScores.neutral || 0, emoji: '😐', class: 'neutral' },
+        { label: 'ネガティブ', value: confidenceScores.negative || 0, emoji: '😞', class: 'negative' }
+    ].sort((a, b) => b.value - a.value); // Sort by highest confidence
+    
+    return scores.map(score => 
+        `<div class="confidence-score-item ${score.class}">
+            <span class="score-emoji">${score.emoji}</span>
+            <span class="score-label">${score.label}</span>
+            <span class="score-value">${Math.round(score.value * 100)}%</span>
+        </div>`
+    ).join('');
+}
+
 /*
 // Sample usage
 async function main() {
@@ -145,4 +208,9 @@ async function main() {
 main();
 */
 
-module.exports = { analyzeComment, supportedLanguages };
+module.exports = { 
+    analyzeComment, 
+    supportedLanguages, 
+    getLanguageNameInJapanese, 
+    formatConfidenceDetails 
+};
