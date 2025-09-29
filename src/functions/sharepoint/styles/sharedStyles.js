@@ -486,6 +486,7 @@ function getReportScripts() {
     `;
 }
 
+// Make sure this file exists and is properly structured
 module.exports = {
     getReportStyles,
     getReportScripts
