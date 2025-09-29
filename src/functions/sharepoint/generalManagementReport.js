@@ -6,7 +6,7 @@ const {
   ensureSharePointFolder,
   uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, getLanguageNameInJapanese, formatConfidenceDetails } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatExpandableConfidenceDetails } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -280,13 +280,14 @@ function generateHtmlReport(structuredData, originalFileName, context) {
     const sentimentRows = structuredData.dailyRecords
         .map(record => {
             const day = String(record.day).padStart(2, '0');
+            const recordId = `day-${day}`;
             
             // Check if sentiment analysis exists and was successful
             if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
                 const sentiment = record.sentimentAnalysis;
                 const sentimentClass = `sentiment-${sentiment.sentiment}`;
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
-                const confidenceDetails = formatConfidenceDetails(sentiment.confidenceScores);
+                const expandableDetails = formatExpandableConfidenceDetails(sentiment.confidenceScores, recordId);
                 
                 return `
         <tr class="sentiment-row">
@@ -300,16 +301,12 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                 <span class="language-badge">${getLanguageNameInJapanese(sentiment.analysisLanguage)}</span>
             </td>
             <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
-            <td class="confidence-bar">
+            <td class="confidence-cell">
                 <div class="confidence-container">
                     <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
                     <span class="confidence-text">${confidence}%</span>
                 </div>
-                <div class="confidence-tooltip">
-                    <div class="confidence-details">
-                        ${confidenceDetails}
-                    </div>
-                </div>
+                ${expandableDetails}
             </td>
         </tr>`;
             } else {
@@ -450,14 +447,14 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             <div class="section-header">
                 <h3>🧠 感情分析詳細レポート</h3>
                 <div class="section-description">
-                    信頼度欄にマウスを合わせると、ポジティブ・ニュートラル・ネガティブの詳細スコアが表示されます
+                    「詳細」ボタンをクリックすると、ポジティブ・ニュートラル・ネガティブの詳細スコアが表示されます
                 </div>
             </div>
             <div class="section-content">
                 <div class="sentiment-summary">
                     <strong>📊 感情分析結果:</strong> ${totalDaysWithComments}件のコメント中 ${successfulAnalyses}件分析成功${failedAnalyses > 0 ? `、${failedAnalyses}件失敗` : ''}
                     <div class="hint-text">
-                        信頼度欄にマウスを合わせると、全感情カテゴリの詳細スコアを確認できます
+                        💡 ヒント: 信頼度欄の「詳細」ボタンで全感情カテゴリのスコアを確認できます
                     </div>
                 </div>
                 <table>

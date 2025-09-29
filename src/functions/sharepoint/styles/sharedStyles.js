@@ -542,6 +542,199 @@ function getReportStyles(theme = 'general') {
             border-left: 3px solid #17a2b8;
         }
 
+        /* Expandable Details Styles */
+        .expandable-details {
+            margin-top: 8px;
+            width: 100%;
+        }
+
+        .details-toggle {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+            width: 100%;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(52, 152, 219, 0.3);
+        }
+
+        .details-toggle:hover {
+            background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4);
+        }
+
+        .details-toggle:active {
+            transform: translateY(0);
+        }
+
+        .details-toggle[aria-expanded="true"] {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            box-shadow: 0 2px 4px rgba(39, 174, 96, 0.3);
+        }
+
+        .details-toggle[aria-expanded="true"]:hover {
+            background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
+        }
+
+        .toggle-icon {
+            transition: transform 0.3s ease;
+            font-size: 0.7em;
+        }
+
+        .details-toggle[aria-expanded="true"] .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .details-toggle[aria-expanded="true"] .toggle-text {
+            content: '閉じる';
+        }
+
+        .details-content {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+                max-height: 0;
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+                max-height: 200px;
+            }
+        }
+
+        .details-header {
+            color: #2c3e50;
+            font-size: 0.9em;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #bdc3c7;
+            text-align: center;
+        }
+
+        .detail-score-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 6px;
+            border-left: 4px solid #bdc3c7;
+            transition: all 0.2s ease;
+        }
+
+        .detail-score-item:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateX(3px);
+        }
+
+        .detail-score-item.positive {
+            border-left-color: #27ae60;
+        }
+
+        .detail-score-item.neutral {
+            border-left-color: #f39c12;
+        }
+
+        .detail-score-item.negative {
+            border-left-color: #e74c3c;
+        }
+
+        .detail-emoji {
+            margin-right: 10px;
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+
+        .detail-label {
+            flex: 0 0 80px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .detail-bar {
+            flex: 1;
+            position: relative;
+            background: #ecf0f1;
+            height: 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-left: 12px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .detail-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.8s ease;
+            position: relative;
+        }
+
+        .detail-fill.positive {
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+        }
+
+        .detail-fill.neutral {
+            background: linear-gradient(90deg, #f39c12, #f1c40f);
+        }
+
+        .detail-fill.negative {
+            background: linear-gradient(90deg, #e74c3c, #ec7063);
+        }
+
+        .detail-percentage {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-weight: 700;
+            font-size: 0.8em;
+            color: #2c3e50;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* Responsive adjustments for expandable details */
+        @media (max-width: 768px) {
+            .details-toggle {
+                font-size: 0.75em;
+                padding: 5px 8px;
+            }
+            
+            .details-content {
+                padding: 12px;
+            }
+            
+            .detail-label {
+                flex: 0 0 60px;
+                font-size: 0.8em;
+            }
+            
+            .detail-bar {
+                height: 16px;
+                margin-left: 8px;
+            }
+        }
+
         /* Responsive Design */
         @media (max-width: 768px) {
             .container {
@@ -665,6 +858,68 @@ function getReportScripts() {
                     if (icon) icon.style.transform = 'rotate(-90deg)';
                 }
             });
+        });
+
+        // Toggle expandable details sections
+        function toggleDetails(recordId) {
+            const detailsElement = document.getElementById('details-' + recordId);
+            const toggleButton = document.querySelector('[onclick="toggleDetails(\'' + recordId + '\')"]');
+            const toggleText = toggleButton.querySelector('.toggle-text');
+            
+            if (detailsElement.style.display === 'none' || detailsElement.style.display === '') {
+                detailsElement.style.display = 'block';
+                toggleButton.setAttribute('aria-expanded', 'true');
+                toggleText.textContent = '閉じる';
+            } else {
+                detailsElement.style.display = 'none';
+                toggleButton.setAttribute('aria-expanded', 'false');
+                toggleText.textContent = '詳細';
+            }
+        }
+
+        // Close all expanded details when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.expandable-details')) {
+                const allDetails = document.querySelectorAll('.details-content');
+                const allToggleButtons = document.querySelectorAll('.details-toggle');
+                
+                allDetails.forEach(function(detail) {
+                    detail.style.display = 'none';
+                });
+                
+                allToggleButtons.forEach(function(button) {
+                    button.setAttribute('aria-expanded', 'false');
+                    const toggleText = button.querySelector('.toggle-text');
+                    if (toggleText) {
+                        toggleText.textContent = '詳細';
+                    }
+                });
+            }
+        });
+
+        // Keyboard accessibility
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                const allDetails = document.querySelectorAll('.details-content[style*="block"]');
+                const allToggleButtons = document.querySelectorAll('.details-toggle[aria-expanded="true"]');
+                
+                allDetails.forEach(function(detail) {
+                    detail.style.display = 'none';
+                });
+                
+                allToggleButtons.forEach(function(button) {
+                    button.setAttribute('aria-expanded', 'false');
+                    const toggleText = button.querySelector('.toggle-text');
+                    if (toggleText) {
+                        toggleText.textContent = '詳細';
+                    }
+                });
+            }
+        });
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📊 Report page initialized with expandable sentiment details');
         });
     `;
 }

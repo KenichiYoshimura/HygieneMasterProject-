@@ -6,7 +6,7 @@ const {
     ensureSharePointFolder,
     uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, getLanguageNameInJapanese, formatConfidenceDetails } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatExpandableConfidenceDetails } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -270,30 +270,37 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         `;
     }).join('\n');
 
-    // Updated sentiment rows to show all days with comments
+    // Updated sentiment rows with expandable details functionality
     const sentimentRows = structuredData.dailyRecords
         .map(record => {
             const day = String(record.day).padStart(2, '0');
+            const recordId = `important-day-${day}`; // Unique ID for important management report
             
             // Check if sentiment analysis exists and was successful
             if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
                 const sentiment = record.sentimentAnalysis;
                 const sentimentClass = `sentiment-${sentiment.sentiment}`;
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
+                const expandableDetails = formatExpandableConfidenceDetails(sentiment.confidenceScores, recordId);
                 
                 return `
         <tr class="sentiment-row">
             <td class="date-cell">${day}</td>
             <td class="comment-text">${sentiment.originalComment}</td>
-            <td class="language-tag">${getLanguageNameInJapanese(sentiment.detectedLanguage)}</td>
+            <td class="language-tag">
+                <span class="language-badge">${getLanguageNameInJapanese(sentiment.detectedLanguage)}</span>
+            </td>
             <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
-            <td class="language-tag">${getLanguageNameInJapanese(sentiment.analysisLanguage)}</td>
+            <td class="language-tag">
+                <span class="language-badge">${getLanguageNameInJapanese(sentiment.analysisLanguage)}</span>
+            </td>
             <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
-            <td class="confidence-bar">
+            <td class="confidence-cell">
                 <div class="confidence-container">
                     <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
                     <span class="confidence-text">${confidence}%</span>
                 </div>
+                ${expandableDetails}
             </td>
         </tr>`;
             } else if (record.comment && record.comment !== "not found" && record.comment.trim()) {
@@ -448,10 +455,16 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         <div class="section">
             <div class="section-header">
                 <h3>🧠 感情分析詳細レポート</h3>
+                <div class="section-description">
+                    「詳細」ボタンをクリックすると、ポジティブ・ニュートラル・ネガティブの詳細スコアが表示されます
+                </div>
             </div>
             <div class="section-content">
                 <div class="sentiment-summary">
                     <strong>📊 感情分析結果:</strong> ${totalDaysWithComments}件のコメント中 ${successfulAnalyses}件分析成功${failedAnalyses > 0 ? `、${failedAnalyses}件失敗` : ''}
+                    <div class="hint-text">
+                        💡 ヒント: 信頼度欄の「詳細」ボタンで全感情カテゴリのスコアを確認できます
+                    </div>
                 </div>
                 <table>
                     <thead>
@@ -462,7 +475,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                             <th>日本語訳</th>
                             <th>分析言語</th>
                             <th>感情判定</th>
-                            <th>信頼度</th>
+                            <th>信頼度（詳細表示）</th>
                         </tr>
                     </thead>
                     <tbody>

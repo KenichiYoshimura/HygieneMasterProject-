@@ -183,6 +183,48 @@ function formatConfidenceDetails(confidenceScores) {
     ).join('');
 }
 
+/**
+ * Formats confidence scores into expandable details structure
+ * @param {Object} confidenceScores - Sentiment confidence scores
+ * @param {string} recordId - Unique identifier for this record (e.g., "day-5")
+ * @returns {string} Formatted HTML string with expandable details
+ */
+function formatExpandableConfidenceDetails(confidenceScores, recordId) {
+    if (!confidenceScores) return '';
+    
+    const scores = [
+        { label: 'ポジティブ', value: confidenceScores.positive || 0, emoji: '😊', class: 'positive' },
+        { label: 'ニュートラル', value: confidenceScores.neutral || 0, emoji: '😐', class: 'neutral' },
+        { label: 'ネガティブ', value: confidenceScores.negative || 0, emoji: '😞', class: 'negative' }
+    ].sort((a, b) => b.value - a.value); // Sort by highest confidence
+    
+    const detailsContent = scores.map(score => 
+        `<div class="detail-score-item ${score.class}">
+            <span class="detail-emoji">${score.emoji}</span>
+            <span class="detail-label">${score.label}</span>
+            <div class="detail-bar">
+                <div class="detail-fill ${score.class}" style="width: ${Math.round(score.value * 100)}%"></div>
+                <span class="detail-percentage">${Math.round(score.value * 100)}%</span>
+            </div>
+        </div>`
+    ).join('');
+    
+    return `
+        <div class="expandable-details">
+            <button class="details-toggle" onclick="toggleDetails('${recordId}')" aria-expanded="false">
+                <span class="toggle-text">詳細</span>
+                <span class="toggle-icon">▼</span>
+            </button>
+            <div id="details-${recordId}" class="details-content" style="display: none;">
+                <div class="details-header">
+                    <strong>感情分析スコア詳細</strong>
+                </div>
+                ${detailsContent}
+            </div>
+        </div>
+    `;
+}
+
 /*
 // Sample usage
 async function main() {
@@ -212,5 +254,6 @@ module.exports = {
     analyzeComment, 
     supportedLanguages, 
     getLanguageNameInJapanese, 
-    formatConfidenceDetails 
+    formatConfidenceDetails,
+    formatExpandableConfidenceDetails
 };
