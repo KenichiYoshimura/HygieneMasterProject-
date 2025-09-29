@@ -1,40 +1,31 @@
 const axios = require('axios');
 
-// Azure Translator credentials from environment variables
-const translatorEndpoint = process.env.AZURE_TRANSLATOR_ENDPOINT || 'https://api.cognitive.microsofttranslator.com/';
+// Azure Translator credentials from environment variables (restored original names)
 const translatorKey = process.env.AZURE_TRANSLATOR_KEY;
-const translatorRegion = process.env.AZURE_TRANSLATOR_REGION || 'japaneast';
+const translatorEndpoint = process.env.AZURE_TRANSLATOR_ENDPOINT;
+const translatorRegion = process.env.AZURE_TRANSLATOR_REGION;
 
-// Azure Language Service credentials from environment variables
-const languageEndpoint = process.env.AZURE_LANGUAGE_ENDPOINT;
+// Azure Language Service credentials (restored original names)
 const languageKey = process.env.AZURE_LANGUAGE_KEY;
+const languageEndpoint = process.env.AZURE_LANGUAGE_ENDPOINT;
 
-// Validation: Check if required environment variables are set
-if (!translatorKey) {
-    throw new Error('AZURE_TRANSLATOR_KEY environment variable is required');
-}
-if (!languageEndpoint) {
-    throw new Error('AZURE_LANGUAGE_ENDPOINT environment variable is required');
-}
-if (!languageKey) {
-    throw new Error('AZURE_LANGUAGE_KEY environment variable is required');
-}
-
-// Supported languages for sentiment analysis
+// Languages supported by Azure Sentiment Analysis
 const supportedLanguages = new Set([
-    "af", "am", "ar", "az", "bg", "bn", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "fa", "fi", "fil",
-    "fr", "ga", "gu", "he", "hi", "hr", "hu", "hy", "id", "is", "it", "ja", "jv", "kk", "km", "kn", "ko", "lo", "lt",
-    "lv", "mk", "ml", "mn", "mr", "ms", "mt", "my", "nb", "ne", "nl", "or", "pa", "pl", "ps", "pt", "ro", "ru", "si",
-    "sk", "sl", "sq", "sr", "sv", "sw", "ta", "te", "th", "tl", "tr", "uk", "ur", "uz", "vi", "zh"
+    'ar', 'bg', 'ca', 'zh', 'zh-hans', 'zh-hant', 'hr', 'cs', 'da', 'nl', 'en', 'et',
+    'fi', 'fr', 'de', 'el', 'he', 'hi', 'hu', 'is', 'id', 'it', 'ja', 'kk', 'ko',
+    'lv', 'lt', 'ms', 'nb', 'fa', 'pl', 'pt', 'ro', 'ru', 'sr', 'sk', 'sl', 'es',
+    'sv', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'vi'
 ]);
 
 // Unified function for sentiment analysis
 async function analyzeComment(text) {
     try {
+        console.log('🔍 Starting sentiment analysis for text:', text.substring(0, 50));
+        
         // Step 1: Detect language
-        console.log('🔍 Detecting language for text:', text.substring(0, 50));
+        console.log('🔍 Detecting language...');
         const detectRes = await axios.post(
-            `${languageEndpoint}language/:analyze-text?api-version=2024-11-01`,
+            `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`,
             {
                 kind: "LanguageDetection",
                 parameters: { modelVersion: "latest" },
@@ -47,7 +38,18 @@ async function analyzeComment(text) {
                 }
             }
         );
-        const detectedLanguage = detectRes.data.results.documents[0].detectedLanguage.iso6391Name;
+        
+        // Check if language detection was successful
+        if (!detectRes.data.results || !detectRes.data.results.documents || detectRes.data.results.documents.length === 0) {
+            throw new Error('Language detection failed - no results returned');
+        }
+        
+        const languageDoc = detectRes.data.results.documents[0];
+        if (languageDoc.error) {
+            throw new Error(`Language detection error: ${languageDoc.error.message}`);
+        }
+        
+        const detectedLanguage = languageDoc.detectedLanguage.iso6391Name;
         console.log('🌐 Detected language:', detectedLanguage);
 
         // Step 2: Check if we need translation
@@ -67,6 +69,11 @@ async function analyzeComment(text) {
                     }
                 }
             );
+            
+            if (!translateRes.data || translateRes.data.length === 0 || !translateRes.data[0].translations) {
+                throw new Error('Translation failed - no translation returned');
+            }
+            
             japaneseTranslation = translateRes.data[0].translations[0].text;
             console.log('🇯🇵 Japanese translation:', japaneseTranslation);
         } else {
@@ -77,9 +84,10 @@ async function analyzeComment(text) {
         const sentimentLanguage = isLanguageSupported ? detectedLanguage : 'ja';
         const textToAnalyze = isLanguageSupported ? text : japaneseTranslation;
         console.log('😊 Analyzing sentiment using language:', sentimentLanguage);
+        console.log('😊 Text to analyze:', textToAnalyze);
         
         const sentimentRes = await axios.post(
-            `${languageEndpoint}language/:analyze-text?api-version=2024-11-01`,
+            `${languageEndpoint}language/:analyze-text?api-version=2023-04-01`,
             {
                 kind: "SentimentAnalysis",
                 parameters: { modelVersion: "latest" },
@@ -94,29 +102,71 @@ async function analyzeComment(text) {
                 }
             }
         );
-        const sentimentDoc = sentimentRes.data.results.documents[0];
+        
+        console.log('🔍 Sentiment API response structure:', JSON.stringify(sentimentRes.data, null, 2));
 
-        // Return result with corrected property names to match report expectations
+        // Check if sentiment analysis was successful
+        if (!sentimentRes.data.results || !sentimentRes.data.results.documents || sentimentRes.data.results.documents.length === 0) {
+            throw new Error('Sentiment analysis failed - no results returned');
+        }
+        
+        const sentimentDoc = sentimentRes.data.results.documents[0];
+        if (sentimentDoc.error) {
+            throw new Error(`Sentiment analysis error: ${sentimentDoc.error.message}`);
+        }
+
+        // Extract confidence scores safely
+        let confidenceScores = {};
+        if (sentimentDoc.confidenceScores) {
+            confidenceScores = {
+                positive: sentimentDoc.confidenceScores.positive || 0,
+                neutral: sentimentDoc.confidenceScores.neutral || 0,
+                negative: sentimentDoc.confidenceScores.negative || 0
+            };
+        } else {
+            // Fallback: create default confidence scores
+            console.warn('⚠️ No confidence scores found, using defaults');
+            const sentiment = sentimentDoc.sentiment;
+            confidenceScores = {
+                positive: sentiment === 'positive' ? 0.8 : 0.1,
+                neutral: sentiment === 'neutral' ? 0.8 : 0.1,
+                negative: sentiment === 'negative' ? 0.8 : 0.1
+            };
+        }
+
+        // Return result with proper structure
         const result = {
             originalComment: text,
             detectedLanguage,
             japaneseTranslation,
-            analysisLanguage: sentimentLanguage,  // Changed from sentimentAnalysisLanguage
+            analysisLanguage: sentimentLanguage,
             sentiment: sentimentDoc.sentiment,
-            confidenceScores: sentimentDoc.confidenceScores,  // Changed from scores
+            confidenceScores: confidenceScores,
             wasTranslated: !isLanguageSupported
         };
 
-        console.log('✅ Analysis complete:', result.sentiment, `(analyzed in ${sentimentLanguage})`);
+        console.log('✅ Analysis complete:', result.sentiment, `(confidence: ${Math.round((confidenceScores[result.sentiment] || 0) * 100)}%)`);
         return result;
 
     } catch (error) {
         console.error('❌ Sentiment analysis failed:', error.message);
         if (error.response) {
             console.error('❌ Response status:', error.response.status);
+            console.error('❌ Response headers:', error.response.headers);
             console.error('❌ Response data:', JSON.stringify(error.response.data, null, 2));
         }
-        throw error;
+        
+        // Return error object that the report can handle
+        return {
+            originalComment: text,
+            error: error.message,
+            detectedLanguage: 'unknown',
+            japaneseTranslation: null,
+            analysisLanguage: 'unknown',
+            sentiment: 'unknown',
+            confidenceScores: { positive: 0, neutral: 0, negative: 0 },
+            wasTranslated: false
+        };
     }
 }
 
@@ -249,7 +299,7 @@ function formatConfidenceDetails(confidenceScores) {
 }
 
 /**
- * Formats confidence scores into simple inline display (replacing expandable details)
+ * Formats confidence scores into simple inline display
  * @param {Object} confidenceScores - Sentiment confidence scores
  * @returns {string} Formatted HTML string with inline confidence details
  */
@@ -274,31 +324,6 @@ function formatInlineConfidenceDetails(confidenceScores) {
         </div>
     `;
 }
-
-/*
-// Sample usage
-async function main() {
-    const comments = [
-        "良好",
-        "サービスに満足しています。",
-        "The food was cold and the service was slow.",
-        "El servicio fue excelente y la comida deliciosa.",
-        "บริการดีมากและอาหารอร่อยมาก"
-    ];
-
-    for (const comment of comments) {
-        try {
-            const result = await analyzeComment(comment);
-            console.log(JSON.stringify(result, null, 2));
-        } catch (error) {
-            console.error(`Failed to analyze comment: "${comment}"`, error.message);
-        }
-    }
-}
-
-//Uncomment to test
-main();
-*/
 
 module.exports = { 
     analyzeComment, 
