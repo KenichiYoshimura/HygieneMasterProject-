@@ -96,14 +96,14 @@ async function analyzeComment(text) {
         );
         const sentimentDoc = sentimentRes.data.results.documents[0];
 
-        // Return result
+        // Return result with corrected property names to match report expectations
         const result = {
             originalComment: text,
             detectedLanguage,
             japaneseTranslation,
-            sentimentAnalysisLanguage: sentimentLanguage,
+            analysisLanguage: sentimentLanguage,  // Changed from sentimentAnalysisLanguage
             sentiment: sentimentDoc.sentiment,
-            scores: sentimentDoc.confidenceScores,
+            confidenceScores: sentimentDoc.confidenceScores,  // Changed from scores
             wasTranslated: !isLanguageSupported
         };
 
@@ -226,7 +226,7 @@ function getLanguageNameInJapanese(languageCode) {
 }
 
 /**
- * Formats confidence scores into detailed breakdown
+ * Formats confidence scores into detailed breakdown (legacy function for backward compatibility)
  * @param {Object} confidenceScores - Sentiment confidence scores
  * @returns {string} Formatted HTML string with confidence details
  */
@@ -261,7 +261,7 @@ function formatExpandableConfidenceDetails(confidenceScores, recordId) {
         { label: 'ポジティブ', value: confidenceScores.positive || 0, emoji: '😊', class: 'positive' },
         { label: 'ニュートラル', value: confidenceScores.neutral || 0, emoji: '😐', class: 'neutral' },
         { label: 'ネガティブ', value: confidenceScores.negative || 0, emoji: '😞', class: 'negative' }
-    ].sort((a, b) => b.value - a.value); // Sort by highest confidence
+    ].sort((a, b) => b.value - a.value);
     
     const detailsContent = scores.map(score => 
         `<div class="detail-score-item ${score.class}">
@@ -276,7 +276,7 @@ function formatExpandableConfidenceDetails(confidenceScores, recordId) {
     
     return `
         <div class="expandable-details">
-            <button class="details-toggle" onclick="toggleDetails('${recordId}')" aria-expanded="false" type="button">
+            <button class="details-toggle" data-record-id="${recordId}" aria-expanded="false" type="button">
                 <span class="toggle-text">詳細</span>
                 <span class="toggle-icon">▼</span>
             </button>
@@ -319,5 +319,6 @@ module.exports = {
     analyzeComment, 
     supportedLanguages, 
     getLanguageNameInJapanese, 
+    formatConfidenceDetails,          // Added back for backward compatibility
     formatExpandableConfidenceDetails
 };
