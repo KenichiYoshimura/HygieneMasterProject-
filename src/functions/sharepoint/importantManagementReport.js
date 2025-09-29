@@ -282,35 +282,35 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
                 
                 return `
-    <tr class="sentiment-row">
-        <td class="date-cell">${day}</td>
-        <td class="comment-text">${sentiment.originalComment}</td>
-        <td class="language-tag">${sentiment.detectedLanguage}</td>
-        <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
-        <td class="language-tag">${sentiment.analysisLanguage}</td>
-        <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
-        <td class="confidence-bar">
-            <div class="confidence-container">
-                <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
-                <span class="confidence-text">${confidence}%</span>
-            </div>
-        </td>
-    </tr>`;
+        <tr class="sentiment-row">
+            <td class="date-cell">${day}</td>
+            <td class="comment-text">${sentiment.originalComment}</td>
+            <td class="language-tag">${sentiment.detectedLanguage}</td>
+            <td class="translation-text">${sentiment.wasTranslated ? sentiment.japaneseTranslation : '<span class="no-translation">翻訳不要</span>'}</td>
+            <td class="language-tag">${sentiment.analysisLanguage}</td>
+            <td><span class="sentiment-badge ${sentimentClass}">${getSentimentIcon(sentiment.sentiment)} ${sentiment.sentiment}</span></td>
+            <td class="confidence-bar">
+                <div class="confidence-container">
+                    <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
+                    <span class="confidence-text">${confidence}%</span>
+                </div>
+            </td>
+        </tr>`;
             } else if (record.comment && record.comment !== "not found" && record.comment.trim()) {
                 // Show why sentiment analysis wasn't performed
-                let reason = 'コメントなし';
+                let reason = '分析エラー';
                 if (record.sentimentAnalysis && record.sentimentAnalysis.error) {
-                    reason = '分析エラー';
+                    reason = `分析エラー: ${record.sentimentAnalysis.error}`;
                 } else {
                     reason = '未分析';
                 }
                 
                 return `
-    <tr class="sentiment-row no-analysis">
-        <td class="date-cell">${day}</td>
-        <td class="comment-text">${record.comment}</td>
-        <td colspan="5" class="no-analysis-reason">${reason}</td>
-    </tr>`;
+        <tr class="sentiment-row no-analysis">
+            <td class="date-cell">${day}</td>
+            <td class="comment-text">${record.comment}</td>
+            <td colspan="5" class="no-analysis-reason">${reason}</td>
+        </tr>`;
             }
             return ''; // Skip records with no comments
         })
@@ -322,123 +322,210 @@ function generateHtmlReport(structuredData, originalFileName, context) {
     const complianceRate = Math.round((menuSummary.allGoodDays / structuredData.summary.recordedDays) * 100);
     const dailyCheckRate = Math.round((structuredData.summary.dailyCheckCompletedDays / structuredData.summary.recordedDays) * 100);
 
+    // Count analysis results for summary info
+    const totalDaysWithComments = structuredData.dailyRecords.filter(r => r.comment && r.comment !== "not found" && r.comment.trim()).length;
+    const successfulAnalyses = structuredData.dailyRecords.filter(r => r.sentimentAnalysis && !r.sentimentAnalysis.error).length;
+    const failedAnalyses = totalDaysWithComments - successfulAnalyses;
+
     return `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>重要衛生管理の実施記録</title>
-    ${getReportStyles()}
+    <title>重要衛生管理レポート - ${structuredData.metadata.location}</title>
+    <style>
+        ${getReportStyles('important')}
+        
+        /* Dynamic CSS variables for compliance rates */
+        :root {
+            --compliance-color: ${complianceRate >= 80 ? '#27ae60' : complianceRate >= 60 ? '#f39c12' : '#e74c3c'};
+            --daily-check-color: ${dailyCheckRate >= 80 ? '#27ae60' : dailyCheckRate >= 60 ? '#f39c12' : '#e74c3c'};
+        }
+    </style>
 </head>
 <body>
-    <div class="report-container">
-        <h1>重要衛生管理の実施記録</h1>
-        <p>店舗名: ${structuredData.metadata.location}</p>
-        <p>年月: ${structuredData.metadata.yearMonth}</p>
-        <p>提出日: ${fileNameParts.submissionDate}</p>
-        <p>提出者: ${fileNameParts.senderEmail}</p>
-        <p>ファイル名: ${fileNameParts.originalFileName}</p>
-        
-        <h2>重要管理項目</h2>
-        <ul>
-            ${structuredData.menuItems.map(item => `<li>${item.menuName}</li>`).join('')}
-        </ul>
-        
-        <h2>日次記録</h2>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    ${structuredData.tableHeaders.map(header => `<th>${header}</th>`).join('')}
-                </tr>
-            </thead>
-            <tbody>
-                ${tableRows}
-            </tbody>
-        </table>
-        
-        <h2>感情分析結果</h2>
-        <table class="sentiment-table">
-            <thead>
-                <tr>
-                    <th>日付</th>
-                    <th>コメント</th>
-                    <th>検出言語</th>
-                    <th>翻訳</th>
-                    <th>分析言語</th>
-                    <th>感情</th>
-                    <th>信頼度</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${sentimentRows}
-            </tbody>
-        </table>
-        
-        <h2>サマリー</h2>
-        <p>記録された日数: ${structuredData.summary.recordedDays}日</p>
-        <p>コメントのある日数: ${structuredData.summary.daysWithComments}日</p>
-        <p>承認された日数: ${structuredData.summary.approvedDays}日</p>
-        <p>日常点検完了日数: ${structuredData.summary.dailyCheckCompletedDays}日</p>
-        <p>コンプライアンス率: ${complianceRate}%</p>
-        <p>日常点検実施率: ${dailyCheckRate}%</p>
-        
-        <h2>感情分析サマリー</h2>
-        <p>ポジティブ: ${sentimentSummary.positive}件</p>
-        <p>ネガティブ: ${sentimentSummary.negative}件</p>
-        <p>ニュートラル: ${sentimentSummary.neutral}件</p>
-        <p>分析エラー: ${sentimentSummary.errors}件</p>
-        
-        <div class="footer">
-            <p>このレポートは HygienMaster システムにより自動生成されました</p>
-            <p>生成日時: ${new Date().toISOString()}</p>
+    <div class="container">
+        <!-- Professional Header -->
+        <header class="header">
+            <h1>重要衛生管理レポート</h1>
+            <div class="subtitle">${structuredData.metadata.location} | ${structuredData.metadata.yearMonth}</div>
+        </header>
+
+        <!-- Executive Summary Cards -->
+        <div class="summary-cards">
+            <div class="summary-card compliance">
+                <div class="card-header">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title">コンプライアンス率</div>
+                </div>
+                <div class="card-value">${complianceRate}%</div>
+                <div class="card-description">全項目良好: ${menuSummary.allGoodDays}/${structuredData.summary.recordedDays}日</div>
+                <div class="progress-bar">
+                    <div class="progress-fill ${complianceRate >= 80 ? '' : complianceRate >= 60 ? 'warning' : 'danger'}" 
+                         style="width: ${complianceRate}%"></div>
+                </div>
+            </div>
+
+            <div class="summary-card daily-check">
+                <div class="card-header">
+                    <div class="card-icon">✅</div>
+                    <div class="card-title">日常点検完了率</div>
+                </div>
+                <div class="card-value">${dailyCheckRate}%</div>
+                <div class="card-description">${structuredData.summary.dailyCheckCompletedDays}/${structuredData.summary.recordedDays}日で完了</div>
+                <div class="progress-bar">
+                    <div class="progress-fill ${dailyCheckRate >= 80 ? '' : dailyCheckRate >= 60 ? 'warning' : 'danger'}" 
+                         style="width: ${dailyCheckRate}%"></div>
+                </div>
+            </div>
+
+            <div class="summary-card comments">
+                <div class="card-header">
+                    <div class="card-icon">💬</div>
+                    <div class="card-title">コメント記入率</div>
+                </div>
+                <div class="card-value">${Math.round((structuredData.summary.daysWithComments / structuredData.summary.recordedDays) * 100)}%</div>
+                <div class="card-description">${structuredData.summary.daysWithComments}/${structuredData.summary.recordedDays}日でコメント記入</div>
+            </div>
+
+            <div class="summary-card sentiment">
+                <div class="card-header">
+                    <div class="card-icon">😊</div>
+                    <div class="card-title">感情分析</div>
+                </div>
+                <div class="card-value">${sentimentSummary.positive + sentimentSummary.neutral + sentimentSummary.negative}</div>
+                <div class="card-description">
+                    👍${sentimentSummary.positive} 😐${sentimentSummary.neutral} 👎${sentimentSummary.negative}
+                </div>
+            </div>
         </div>
+
+        <!-- Submission Information -->
+        <div class="section">
+            <div class="section-header">
+                <h3>📋 提出情報</h3>
+            </div>
+            <div class="section-content">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                    <div><strong>提出日時:</strong> ${fileNameParts.submissionDate}</div>
+                    <div><strong>提出者:</strong> ${fileNameParts.senderEmail}</div>
+                    <div><strong>ファイル名:</strong> ${fileNameParts.originalFileName}</div>
+                    <div><strong>店舗名:</strong> ${structuredData.metadata.location}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Daily Records Table -->
+        <div class="section">
+            <div class="section-header">
+                <h3>📅 日次管理記録</h3>
+            </div>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日付</th>
+                            <th>Menu 1</th>
+                            <th>Menu 2</th>
+                            <th>Menu 3</th>
+                            <th>Menu 4</th>
+                            <th>Menu 5</th>
+                            <th>日常点検</th>
+                            <th>特記事項</th>
+                            <th>確認者</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sentiment Analysis Section -->
+        ${sentimentRows ? `
+        <div class="section">
+            <div class="section-header">
+                <h3>🧠 感情分析詳細レポート</h3>
+            </div>
+            <div class="section-content">
+                <div class="sentiment-summary">
+                    <strong>📊 感情分析結果:</strong> ${totalDaysWithComments}件のコメント中 ${successfulAnalyses}件分析成功${failedAnalyses > 0 ? `、${failedAnalyses}件失敗` : ''}
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日付</th>
+                            <th>コメント（原文）</th>
+                            <th>検出言語</th>
+                            <th>日本語訳</th>
+                            <th>分析言語</th>
+                            <th>感情判定</th>
+                            <th>信頼度</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sentimentRows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Menu Item Reference -->
+        <div class="section">
+            <div class="section-header">
+                <h3>🍽️ 重要管理項目定義</h3>
+            </div>
+            <div class="section-content">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>メニュー</th>
+                            <th>管理項目</th>
+                            <th>NG回数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${structuredData.menuItems.map((item, index) => `
+                        <tr>
+                            <td><strong>Menu ${index + 1}</strong></td>
+                            <td style="text-align: left;">${item.menuName}</td>
+                            <td>
+                                <span class="status-badge ${menuSummary.ngCounts && menuSummary.ngCounts[index] > 0 ? 'status-bad' : 'status-good'}">
+                                    ${menuSummary.ngCounts ? menuSummary.ngCounts[index] : 0}回
+                                </span>
+                            </td>
+                        </tr>
+                        `).join('\n')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div>このレポートは <strong>HygienMaster システム</strong> により自動生成されました</div>
+            <div class="timestamp">生成日時: ${new Date().toLocaleString('ja-JP')}</div>
+        </footer>
     </div>
-    ${getReportScripts()}
+
+    <script>
+        ${getReportScripts()}
+    </script>
 </body>
-</html>
-`;
+</html>`;
 }
 
-function parseFileName(originalFileName, context) {
-    // Improved parsing logic to handle more cases and avoid crashes
-    try {
-        const nameParts = originalFileName.split('_');
-        
-        // Extract date in YYYYMMDD format
-        const datePart = nameParts.find(part => /^\d{8}$/.test(part)) || '';
-        const formattedDate = datePart.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
-        
-        // Extract sender email (might be in the format name@example.com or just name)
-        const senderEmail = nameParts.find(part => part.includes('@')) || '';
-        
-        // Original file name without extension
-        const baseFileName = originalFileName.replace(/\.[^/.]+$/, "");
-        
-        return {
-            submissionDate: formattedDate,
-            senderEmail: senderEmail,
-            originalFileName: baseFileName
-        };
-    } catch (error) {
-        handleError(error, 'File Name Parsing', context);
-        return {
-            submissionDate: '',
-            senderEmail: '',
-            originalFileName: originalFileName // Fallback to original if parsing fails
-        };
+// Add missing helper functions
+function getSentimentIcon(sentiment) {
+    switch (sentiment) {
+        case 'positive': return '😊';
+        case 'negative': return '😞';
+        case 'neutral': return '😐';
+        default: return '❓';
     }
-}
-
-function generateSentimentSummary(dailyRecords) {
-    return dailyRecords.reduce((summary, record) => {
-        if (record.sentimentAnalysis && !record.sentimentAnalysis.error) {
-            summary[record.sentimentAnalysis.sentiment] = (summary[record.sentimentAnalysis.sentiment] || 0) + 1;
-        } else {
-            summary.errors = (summary.errors || 0) + 1;
-        }
-        return summary;
-    }, { positive: 0, negative: 0, neutral: 0, errors: 0 });
 }
 
 function calculateMenuSummary(structuredData) {
@@ -446,22 +533,27 @@ function calculateMenuSummary(structuredData) {
         allGoodDays: 0,
         someIssuesDays: 0,
         noRecordsDays: 0,
-        totalDays: structuredData.summary.totalDays
+        totalDays: structuredData.summary.totalDays,
+        ngCounts: [0, 0, 0, 0, 0] // Initialize for 5 menu items
     };
     
     structuredData.dailyRecords.forEach(record => {
-        const menuStatuses = [record.Menu1Status, record.Menu2Status, record.Menu3Status, record.Menu4Status, record.Menu5Status];
+        const menuStatuses = [
+            record.Menu1Status, 
+            record.Menu2Status, 
+            record.Menu3Status, 
+            record.Menu4Status, 
+            record.Menu5Status
+        ];
+        
+        // Count NG occurrences for each menu
+        menuStatuses.forEach((status, index) => {
+            if (status === '否') {
+                summary.ngCounts[index]++;
+            }
+        });
+        
         const allGood = menuStatuses.every(status => status === '良');
         const someIssues = menuStatuses.some(status => status === '否' || status === '無');
         
-        if (allGood) {
-            summary.allGoodDays++;
-        } else if (someIssues) {
-            summary.someIssuesDays++;
-        } else {
-            summary.noRecordsDays++;
-        }
-    });
-    
-    return summary;
-}
+        if
