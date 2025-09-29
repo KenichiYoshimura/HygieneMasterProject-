@@ -349,9 +349,8 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             }
         }).join('\n');
 
-    const categorySummary = calculateCategorySummary(structuredData);
     const sentimentSummary = generateSentimentSummary(structuredData.dailyRecords);
-    const complianceRate = Math.round((categorySummary.allGoodDays / structuredData.summary.recordedDays) * 100);
+    const complianceRate = Math.round((sentimentSummary.positive + sentimentSummary.neutral + sentimentSummary.negative) / structuredData.summary.recordedDays * 100);
 
     // Count analysis results for summary info
     const totalDaysWithComments = structuredData.dailyRecords.filter(r => r.comment && r.comment !== "not found" && r.comment.trim()).length;
@@ -390,7 +389,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                     <div class="card-title">コンプライアンス率</div>
                 </div>
                 <div class="card-value">${complianceRate}%</div>
-                <div class="card-description">全項目良好: ${categorySummary.allGoodDays}/${structuredData.summary.recordedDays}日</div>
+                <div class="card-description">全項目良好: ${sentimentSummary.positive + sentimentSummary.neutral + sentimentSummary.negative}/${structuredData.summary.recordedDays}日</div>
                 <div class="progress-bar">
                     <div class="progress-fill ${complianceRate >= 80 ? '' : complianceRate >= 60 ? 'warning' : 'danger'}" 
                          style="width: ${complianceRate}%"></div>
@@ -433,13 +432,26 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             </div>
         </div>
 
-        <!-- Daily Records Table -->
+        <!-- Daily Records Table with Integrated Category Reference -->
         <div class="section">
             <div class="section-header">
                 <h3>📅 日次管理記録</h3>
             </div>
             <div class="section-content">
-                <table>
+                <!-- Category Reference (moved here) -->
+                <div class="category-reference">
+                    <h4 style="margin-bottom: 15px; color: #2c3e50;">📚 管理カテゴリ定義</h4>
+                    <div class="category-grid">
+                        ${structuredData.categories.map((cat, index) => `
+                        <div class="category-item">
+                            <strong>Cat ${index + 1}:</strong> ${cat.categoryName}
+                        </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Daily Records Table -->
+                <table style="margin-top: 25px;">
                     <thead>
                         <tr>
                             <th>日付</th>
@@ -497,37 +509,6 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         </div>
         ` : ''}
 
-        <!-- Category Reference -->
-        <div class="section">
-            <div class="section-header">
-                <h3>📚 管理カテゴリ定義</h3>
-            </div>
-            <div class="section-content">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>カテゴリ</th>
-                            <th>管理項目</th>
-                            <th>NG回数</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${structuredData.categories.map((cat, index) => `
-                        <tr>
-                            <td><strong>Cat ${index + 1}</strong></td>
-                            <td style="text-align: left;">${cat.categoryName}</td>
-                            <td>
-                                <span class="status-badge ${categorySummary.ngCounts[index] > 0 ? 'status-bad' : 'status-good'}">
-                                    ${categorySummary.ngCounts[index]}回
-                                </span>
-                            </td>
-                        </tr>
-                        `).join('\n')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- Footer -->
         <footer class="footer">
             <div>このレポートは <strong>HygienMaster システム</strong> により自動生成されました</div>
@@ -549,46 +530,6 @@ function getSentimentIcon(sentiment) {
         case 'neutral': return '😐';
         default: return '❓';
     }
-}
-
-function calculateCategorySummary(structuredData) {
-    const ngCounts = [0, 0, 0, 0, 0, 0, 0]; // Cat1-Cat7
-    let allGoodDays = 0;
-    let anyNgDays = 0;
-
-    structuredData.dailyRecords.forEach(record => {
-        const statuses = [
-            record.Cat1Status,
-            record.Cat2Status,
-            record.Cat3Status,
-            record.Cat4Status,
-            record.Cat5Status,
-            record.Cat6Status,
-            record.Cat7Status
-        ];
-
-        let allGood = true;
-        let hasNg = false;
-
-        statuses.forEach((status, index) => {
-            if (status === "否") {
-                ngCounts[index]++;
-                hasNg = true;
-                allGood = false;
-            } else if (status !== "良") {
-                allGood = false;
-            }
-        });
-
-        if (allGood) allGoodDays++;
-        if (hasNg) anyNgDays++;
-    });
-
-    return {
-        ngCounts,
-        allGoodDays,
-        anyNgDays
-    };
 }
 
 function generateSentimentSummary(dailyRecords) {

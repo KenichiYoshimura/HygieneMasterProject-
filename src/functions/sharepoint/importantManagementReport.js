@@ -450,13 +450,26 @@ function generateHtmlReport(structuredData, originalFileName, context) {
             </div>
         </div>
 
-        <!-- Daily Records Table -->
+        <!-- Daily Records Table with Integrated Menu Reference -->
         <div class="section">
             <div class="section-header">
                 <h3>📅 日次管理記録</h3>
             </div>
             <div class="section-content">
-                <table>
+                <!-- Menu Reference (moved here) -->
+                <div class="category-reference">
+                    <h4 style="margin-bottom: 15px; color: #2c3e50;">🍽️ 重要管理項目定義</h4>
+                    <div class="category-grid">
+                        ${structuredData.menuItems.map((item, index) => `
+                        <div class="category-item">
+                            <strong>Menu ${index + 1}:</strong> ${item.menuName}
+                        </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Daily Records Table -->
+                <table style="margin-top: 25px;">
                     <thead>
                         <tr>
                             <th>日付</th>
@@ -513,37 +526,6 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         </div>
         ` : ''}
 
-        <!-- Menu Item Reference -->
-        <div class="section">
-            <div class="section-header">
-                <h3>🍽️ 重要管理項目定義</h3>
-            </div>
-            <div class="section-content">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>メニュー</th>
-                            <th>管理項目</th>
-                            <th>NG回数</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${structuredData.menuItems.map((item, index) => `
-                        <tr>
-                            <td><strong>Menu ${index + 1}</strong></td>
-                            <td style="text-align: left;">${item.menuName}</td>
-                            <td>
-                                <span class="status-badge ${menuSummary.ngCounts && menuSummary.ngCounts[index] > 0 ? 'status-bad' : 'status-good'}">
-                                    ${menuSummary.ngCounts ? menuSummary.ngCounts[index] : 0}回
-                                </span>
-                            </td>
-                        </tr>
-                        `).join('\n')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- Footer -->
         <footer class="footer">
             <div>このレポートは <strong>HygienMaster システム</strong> により自動生成されました</div>
@@ -568,13 +550,13 @@ function getSentimentIcon(sentiment) {
     }
 }
 
+// Simplified calculateMenuSummary without NG counting
 function calculateMenuSummary(structuredData) {
     const summary = {
         allGoodDays: 0,
         someIssuesDays: 0,
         noRecordsDays: 0,
-        totalDays: structuredData.summary.totalDays,
-        ngCounts: [0, 0, 0, 0, 0] // Initialize for 5 menu items
+        totalDays: structuredData.summary.totalDays
     };
     
     structuredData.dailyRecords.forEach(record => {
@@ -585,13 +567,6 @@ function calculateMenuSummary(structuredData) {
             record.Menu4Status, 
             record.Menu5Status
         ];
-        
-        // Count NG occurrences for each menu
-        menuStatuses.forEach((status, index) => {
-            if (status === '否') {
-                summary.ngCounts[index]++;
-            }
-        });
         
         const allGood = menuStatuses.every(status => status === '良');
         const someIssues = menuStatuses.some(status => status === '否' || status === '無');
