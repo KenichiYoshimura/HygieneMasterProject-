@@ -6,7 +6,7 @@ const {
     ensureSharePointFolder,
     uploadHtmlToSharePoint
 } = require('./sendToSharePoint');
-const { analyzeComment, getLanguageNameInJapanese, formatExpandableConfidenceDetails } = require('../analytics/sentimentAnalysis');
+const { analyzeComment, getLanguageNameInJapanese, formatInlineConfidenceDetails } = require('../analytics/sentimentAnalysis');
 const axios = require('axios');
 const { getReportStyles, getReportScripts } = require('./styles/sharedStyles');
 
@@ -270,7 +270,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
         `;
     }).join('\n');
 
-    // Updated sentiment rows with expandable details functionality
+    // Updated sentiment rows with inline details
     const sentimentRows = structuredData.dailyRecords
         .map(record => {
             const day = String(record.day).padStart(2, '0');
@@ -281,7 +281,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                 const sentiment = record.sentimentAnalysis;
                 const sentimentClass = `sentiment-${sentiment.sentiment}`;
                 const confidence = Math.round((sentiment.confidenceScores[sentiment.sentiment] || 0) * 100);
-                const expandableDetails = formatExpandableConfidenceDetails(sentiment.confidenceScores, recordId);
+                const inlineDetails = formatInlineConfidenceDetails(sentiment.confidenceScores, recordId);
                 
                 return `
         <tr class="sentiment-row">
@@ -300,7 +300,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
                     <div class="confidence-fill ${sentimentClass}" style="width: ${confidence}%"></div>
                     <span class="confidence-text">${confidence}%</span>
                 </div>
-                ${expandableDetails}
+                ${inlineDetails}
             </td>
         </tr>`;
             } else if (record.comment && record.comment !== "not found" && record.comment.trim()) {

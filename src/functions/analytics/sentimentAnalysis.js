@@ -249,12 +249,11 @@ function formatConfidenceDetails(confidenceScores) {
 }
 
 /**
- * Formats confidence scores into expandable details structure
+ * Formats confidence scores into simple inline display (replacing expandable details)
  * @param {Object} confidenceScores - Sentiment confidence scores
- * @param {string} recordId - Unique identifier for this record (e.g., "day-5")
- * @returns {string} Formatted HTML string with expandable details
+ * @returns {string} Formatted HTML string with inline confidence details
  */
-function formatExpandableConfidenceDetails(confidenceScores, recordId) {
+function formatInlineConfidenceDetails(confidenceScores) {
     if (!confidenceScores) return '';
     
     const scores = [
@@ -263,29 +262,15 @@ function formatExpandableConfidenceDetails(confidenceScores, recordId) {
         { label: 'ネガティブ', value: confidenceScores.negative || 0, emoji: '😞', class: 'negative' }
     ].sort((a, b) => b.value - a.value);
     
-    const detailsContent = scores.map(score => 
-        `<div class="detail-score-item ${score.class}">
-            <span class="detail-emoji">${score.emoji}</span>
-            <span class="detail-label">${score.label}</span>
-            <div class="detail-bar">
-                <div class="detail-fill ${score.class}" style="width: ${Math.round(score.value * 100)}%"></div>
-                <span class="detail-percentage">${Math.round(score.value * 100)}%</span>
-            </div>
-        </div>`
-    ).join('');
-    
     return `
-        <div class="expandable-details">
-            <button class="details-toggle" data-record-id="${recordId}" aria-expanded="false" type="button">
-                <span class="toggle-text">詳細</span>
-                <span class="toggle-icon">▼</span>
-            </button>
-            <div id="details-${recordId}" class="details-content" style="display: none;">
-                <div class="details-header">
-                    <strong>感情分析スコア詳細</strong>
-                </div>
-                ${detailsContent}
-            </div>
+        <div class="inline-confidence-details">
+            ${scores.map(score => 
+                `<div class="inline-score-item ${score.class}">
+                    <span class="score-emoji">${score.emoji}</span>
+                    <span class="score-label">${score.label}</span>
+                    <span class="score-value">${Math.round(score.value * 100)}%</span>
+                </div>`
+            ).join('')}
         </div>
     `;
 }
@@ -319,6 +304,6 @@ module.exports = {
     analyzeComment, 
     supportedLanguages, 
     getLanguageNameInJapanese, 
-    formatConfidenceDetails,          // Added back for backward compatibility
-    formatExpandableConfidenceDetails
+    formatConfidenceDetails,          // Keep for backward compatibility
+    formatInlineConfidenceDetails     // New simple inline version
 };

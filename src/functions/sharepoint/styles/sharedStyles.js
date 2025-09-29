@@ -423,187 +423,61 @@ function getReportStyles(theme = 'general') {
             z-index: 2;
         }
 
-        /* Enhanced Expandable Details Styles */
-        .expandable-details {
+        /* Simplified Inline Confidence Details */
+        .inline-confidence-details {
             margin-top: 8px;
-            width: 100%;
-            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.75em;
         }
 
-        .details-toggle {
-            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%) !important;
-            color: white !important;
-            border: none !important;
-            padding: 8px 12px !important;
-            border-radius: 6px !important;
-            font-size: 0.8em !important;
-            font-weight: 600 !important;
-            cursor: pointer !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            gap: 6px !important;
-            transition: all 0.2s ease !important;
-            width: 100% !important;
-            box-shadow: 0 2px 4px rgba(52, 152, 219, 0.3) !important;
-            min-height: 32px !important;
-            outline: none !important;
-            position: relative !important;
-            z-index: 10 !important;
+        .inline-score-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.8);
+            border-left: 3px solid #bdc3c7;
+            transition: all 0.2s ease;
         }
 
-        .details-toggle:hover {
-            background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%) !important;
-            transform: translateY(-1px) !important;
-            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4) !important;
+        .inline-score-item:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateX(2px);
         }
 
-        .details-toggle:active {
-            transform: translateY(0) !important;
-            background: linear-gradient(135deg, #1f5f8b 0%, #1a4971 100%) !important;
+        .inline-score-item.positive {
+            border-left-color: #27ae60;
+            background: rgba(46, 204, 113, 0.1);
         }
 
-        .details-toggle:focus {
-            outline: 2px solid #3498db !important;
-            outline-offset: 2px !important;
+        .inline-score-item.neutral {
+            border-left-color: #f39c12;
+            background: rgba(243, 156, 18, 0.1);
         }
 
-        .details-toggle[aria-expanded="true"] {
-            background: linear-gradient(135deg, #27ae60 0%, #229954 100%) !important;
-            box-shadow: 0 2px 4px rgba(39, 174, 96, 0.3) !important;
+        .inline-score-item.negative {
+            border-left-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.1);
         }
 
-        .details-toggle[aria-expanded="true"]:hover {
-            background: linear-gradient(135deg, #229954 0%, #1e8449 100%) !important;
+        .inline-score-item .score-emoji {
+            margin-right: 6px;
+            font-size: 1.1em;
         }
 
-        .toggle-icon {
-            transition: transform 0.3s ease !important;
-            font-size: 0.7em !important;
-            display: inline-block !important;
+        .inline-score-item .score-label {
+            flex: 1;
+            font-weight: 600;
+            color: #2c3e50;
         }
 
-        .details-toggle[aria-expanded="true"] .toggle-icon {
-            transform: rotate(180deg) !important;
-        }
-
-        .details-content {
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%) !important;
-            border: 2px solid #e9ecef !important;
-            border-radius: 8px !important;
-            padding: 15px !important;
-            margin-top: 8px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
-            animation: slideDown 0.3s ease !important;
-            position: relative !important;
-            z-index: 5 !important;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-                max-height: 0;
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-                max-height: 200px;
-            }
-        }
-
-        .details-header {
-            color: #2c3e50 !important;
-            font-size: 0.9em !important;
-            margin-bottom: 12px !important;
-            padding-bottom: 8px !important;
-            border-bottom: 2px solid #bdc3c7 !important;
-            text-align: center !important;
-            font-weight: bold !important;
-        }
-
-        /* Detail Bar Styles */
-        .detail-score-item {
-            display: flex !important;
-            align-items: center !important;
-            margin: 8px 0 !important;
-            padding: 8px !important;
-            background: rgba(255, 255, 255, 0.8) !important;
-            border-radius: 6px !important;
-            border-left: 4px solid #bdc3c7 !important;
-            transition: all 0.2s ease !important;
-        }
-
-        .detail-score-item:hover {
-            background: rgba(255, 255, 255, 1) !important;
-            transform: translateX(3px) !important;
-        }
-
-        .detail-score-item.positive {
-            border-left-color: #27ae60 !important;
-        }
-
-        .detail-score-item.neutral {
-            border-left-color: #f39c12 !important;
-        }
-
-        .detail-score-item.negative {
-            border-left-color: #e74c3c !important;
-        }
-
-        .detail-emoji {
-            margin-right: 10px !important;
-            font-size: 1.2em !important;
-            flex-shrink: 0 !important;
-        }
-
-        .detail-label {
-            flex: 0 0 80px !important;
-            font-weight: 600 !important;
-            color: #2c3e50 !important;
-        }
-
-        .detail-bar {
-            flex: 1 !important;
-            position: relative !important;
-            background: #ecf0f1 !important;
-            height: 20px !important;
-            border-radius: 10px !important;
-            overflow: hidden !important;
-            margin-left: 12px !important;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1) !important;
-        }
-
-        .detail-fill {
-            height: 100% !important;
-            border-radius: 10px !important;
-            transition: width 0.8s ease !important;
-            position: relative !important;
-        }
-
-        .detail-fill.positive {
-            background: linear-gradient(90deg, #27ae60, #2ecc71) !important;
-        }
-
-        .detail-fill.neutral {
-            background: linear-gradient(90deg, #f39c12, #f1c40f) !important;
-        }
-
-        .detail-fill.negative {
-            background: linear-gradient(90deg, #e74c3c, #ec7063) !important;
-        }
-
-        .detail-percentage {
-            position: absolute !important;
-            right: 8px !important;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            font-weight: 700 !important;
-            font-size: 0.8em !important;
-            color: #2c3e50 !important;
-            background: rgba(255, 255, 255, 0.9) !important;
-            padding: 1px 4px !important;
-            border-radius: 3px !important;
+        .inline-score-item .score-value {
+            font-weight: 700;
+            color: #2c3e50;
+            margin-left: 8px;
         }
 
         /* Enhanced Sentiment Summary */
@@ -675,25 +549,14 @@ function getReportStyles(theme = 'general') {
             border-left: 3px solid #17a2b8;
         }
 
-        /* Responsive adjustments for expandable details */
+        /* Responsive adjustments */
         @media (max-width: 768px) {
-            .details-toggle {
-                font-size: 0.75em !important;
-                padding: 5px 8px !important;
+            .inline-confidence-details {
+                font-size: 0.7em;
             }
             
-            .details-content {
-                padding: 12px !important;
-            }
-            
-            .detail-label {
-                flex: 0 0 60px !important;
-                font-size: 0.8em !important;
-            }
-            
-            .detail-bar {
-                height: 16px !important;
-                margin-left: 8px !important;
+            .inline-score-item {
+                padding: 2px 6px;
             }
 
             .language-badge {
@@ -727,113 +590,14 @@ function getReportStyles(theme = 'general') {
 }
 
 /**
- * Gets the JavaScript code for interactive features
+ * Gets the JavaScript code for interactive features (simplified without expandable buttons)
  * @returns {string} JavaScript code as string
  */
 function getReportScripts() {
     return `
-        // Toggle expandable details sections
-        function toggleDetails(recordId) {
-            console.log('Toggling details for:', recordId);
-            
-            const detailsElement = document.getElementById('details-' + recordId);
-            const toggleButton = document.querySelector('[data-record-id="' + recordId + '"]');
-            const toggleText = toggleButton ? toggleButton.querySelector('.toggle-text') : null;
-            const toggleIcon = toggleButton ? toggleButton.querySelector('.toggle-icon') : null;
-            
-            if (!detailsElement) {
-                console.error('Details element not found for:', recordId);
-                return;
-            }
-            
-            console.log('Current display:', detailsElement.style.display);
-            
-            if (detailsElement.style.display === 'none' || detailsElement.style.display === '') {
-                detailsElement.style.display = 'block';
-                if (toggleButton) {
-                    toggleButton.setAttribute('aria-expanded', 'true');
-                }
-                if (toggleText) {
-                    toggleText.textContent = '閉じる';
-                }
-                console.log('Opened details for:', recordId);
-            } else {
-                detailsElement.style.display = 'none';
-                if (toggleButton) {
-                    toggleButton.setAttribute('aria-expanded', 'false');
-                }
-                if (toggleText) {
-                    toggleText.textContent = '詳細';
-                }
-                console.log('Closed details for:', recordId);
-            }
-        }
-
-        // Initialize when page loads
+        // Initialize page
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('📊 Report page initialized with expandable sentiment details');
-            
-            // Add click listeners to all detail toggle buttons
-            const toggleButtons = document.querySelectorAll('.details-toggle[data-record-id]');
-            console.log('Found', toggleButtons.length, 'toggle buttons');
-            
-            toggleButtons.forEach(function(button, index) {
-                console.log('Setting up button', index, 'with record-id:', button.getAttribute('data-record-id'));
-                
-                button.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    
-                    // Extract recordId from button's data attribute
-                    const recordId = button.getAttribute('data-record-id');
-                    if (recordId) {
-                        console.log('Clicking button for record:', recordId);
-                        toggleDetails(recordId);
-                    } else {
-                        console.error('No data-record-id found on button');
-                    }
-                });
-            });
-        });
-
-        // Close all expanded details when clicking outside
-        document.addEventListener('click', function(event) {
-            if (!event.target.closest('.expandable-details')) {
-                const allDetails = document.querySelectorAll('.details-content[style*="block"]');
-                const allToggleButtons = document.querySelectorAll('.details-toggle[aria-expanded="true"]');
-                
-                allDetails.forEach(function(detail) {
-                    detail.style.display = 'none';
-                });
-                
-                allToggleButtons.forEach(function(button) {
-                    button.setAttribute('aria-expanded', 'false');
-                    const toggleText = button.querySelector('.toggle-text');
-                    if (toggleText) {
-                        toggleText.textContent = '詳細';
-                    }
-                });
-            }
-        });
-
-        // Keyboard accessibility
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                const allDetails = document.querySelectorAll('.details-content[style*="block"]');
-                const allToggleButtons = document.querySelectorAll('.details-toggle[aria-expanded="true"]');
-                
-                allDetails.forEach(function(detail) {
-                    detail.style.display = 'none';
-                });
-                
-                allToggleButtons.forEach(function(button) {
-                    button.setAttribute('aria-expanded', 'false');
-                    const toggleText = button.querySelector('.toggle-text');
-                    if (toggleText) {
-                        toggleText.textContent = '詳細';
-                    }
-                });
-            }
+            console.log('📊 Report page initialized with inline sentiment details');
         });
     `;
 }
