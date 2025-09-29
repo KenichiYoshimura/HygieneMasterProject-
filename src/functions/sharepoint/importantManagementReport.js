@@ -518,7 +518,7 @@ function generateHtmlReport(structuredData, originalFileName, context) {
 </html>`;
 }
 
-// Add missing helper functions
+// Helper functions that were missing
 function getSentimentIcon(sentiment) {
     switch (sentiment) {
         case 'positive': return '😊';
@@ -556,4 +556,51 @@ function calculateMenuSummary(structuredData) {
         const allGood = menuStatuses.every(status => status === '良');
         const someIssues = menuStatuses.some(status => status === '否' || status === '無');
         
-        if
+        if (allGood) {
+            summary.allGoodDays++;
+        } else if (someIssues) {
+            summary.someIssuesDays++;
+        } else {
+            summary.noRecordsDays++;
+        }
+    });
+    
+    return summary;
+}
+
+function generateSentimentSummary(dailyRecords) {
+    let positive = 0, negative = 0, neutral = 0, errors = 0;
+    
+    dailyRecords.forEach(record => {
+        if (record.sentimentAnalysis) {
+            if (record.sentimentAnalysis.error) {
+                errors++;
+            } else {
+                switch (record.sentimentAnalysis.sentiment) {
+                    case 'positive':
+                        positive++;
+                        break;
+                    case 'negative':
+                        negative++;
+                        break;
+                    case 'neutral':
+                        neutral++;
+                        break;
+                }
+            }
+        }
+    });
+    
+    return { positive, negative, neutral, errors };
+}
+
+function parseFileName(originalFileName, context) {
+    return {
+        submissionDate: new Date().toLocaleDateString('ja-JP'),
+        senderEmail: 'system@hygienmaster.com',
+        originalFileName: originalFileName
+    };
+}
+
+// Export the main function
+module.exports = { prepareImportantManagementReport };
