@@ -8,12 +8,13 @@ const { app } = require('@azure/functions');
 // Updated to use new extractors (removed /legacy/ path)
 const { extractGeneralManagementData } = require('./docIntelligence/generalManagementFormExtractor');
 const { extractImportantManagementData } = require('./docIntelligence/importantManagementFormExtractor');
-const { uploadToMondayGeneralManagementBoard } = require('./monday/generalManagementDashboard');
-const { uploadToMonday } = require('./monday/importantManagementDashboard');
-const { classifyDocument } = require('./docIntelligence/documentClassifier');
+//const { uploadToMondayGeneralManagementBoard } = require('./monday/generalManagementDashboard');
+//const { uploadToMonday } = require('./monday/importantManagementDashboard');
+//const { classifyDocument } = require('./docIntelligence/documentClassifier');
 const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_FORM } = require('./docIntelligence/ocrTitleDetector');
 const { prepareGeneralManagementReport } = require('./sharepoint/generalManagementReport');
 const { prepareImportantManagementReport } = require('./sharepoint/importantManagementReport');
+const { analyseAndExtract, generateAnnotatedImageToSharePoint } = require('./docIntelligence/generalFormExtractor');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
@@ -112,7 +113,14 @@ app.storageBlob('FormProcessor', {
         });
         return;
       } else {
-        logMessage(`⚠️ OCR failed to detect title. Skipping file.`, context);
+        logMessage(`⚠️ OCR failed to detect title. Trying to extract contents from it using general AI.`, context);
+        await processUnknownFileType(context, {
+          title: detectedTitle,
+          base64Raw,
+          fileExtension,
+          blobName,
+          companyName
+        });
         return;
       }
     } catch (error) {
@@ -197,6 +205,109 @@ async function processExtractedData(context, {
     logMessage(`✅ Successfully processed and moved blob: ${blobName} to processed-attachments/${companyName}`, context);
   } catch (error) {
     handleError("❌ Error during data extraction/upload", error, context);
+  }
+}
+
+/**  
+ * Function to extract data from any document to demonstrate the capability of AI
+*/
+async function processUnknownFileType(context, {
+  title,
+  base64Raw,
+  fileExtension,
+  blobName,
+  companyName
+}) {
+  try {
+    logMessage(`🧠 Starting general form extraction for unknown file type`, context);
+    logMessage(`📄 File: ${blobName}, Company: ${companyName}, Extension: ${fileExtension}`, context);
+
+    // Convert base64 to buffer for processing
+    const imageBuffer = Buffer.from(base64Raw, 'base64');
+    
+    // Determine MIME type
+    const mimeType = fileExtension === 'pdf' ? 'application/pdf' : 
+                    fileExtension === 'heic' ? 'image/heif' : 
+                    `image/${fileExtension}`;
+
+    logMessage(`🔍 Processing with MIME type: ${mimeType}`, context);
+
+    // Step 1: Extract and analyze the document using general form extractor
+    logMessage(`📖 Starting document analysis...`, context);
+    const analyseOutput = await analyseAndExtract(imageBuffer, mimeType, context);
+
+    if (!analyseOutput || analyseOutput.length === 0) {
+      logMessage(`❌ No text regions detected in the document`, context);
+      
+      // Move to processed folder even if no text found
+      await moveBlob(context, blobName, {
+        sourceContainerName: 'incoming-emails',
+        targetContainerName: 'processed-attachments',
+        targetSubfolder: `${companyName}/no-text-detected`
+      });
+      
+      return;
+    }
+
+    logMessage(`✅ Analysis complete! Found ${analyseOutput.length} text regions`, context);
+    
+    // Log sample extracted text for debugging
+    if (analyseOutput.length > 0) {
+      logMessage(`📝 Sample extracted text regions:`, context);
+      analyseOutput.slice(0, 3).forEach((region, idx) => {
+        const text = region.displayText || '';
+        const handwritten = region.isHandwritten ? '✍️' : '🖨️';
+        logMessage(`  [${idx}] ${handwritten} "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`, context);
+      });
+    }
+
+    // Step 2: Generate and upload annotated image to SharePoint
+    logMessage(`🖼️ Generating annotated image for SharePoint upload...`, context);
+    
+    const originalFileName = blobName.split(')')[1] || `unknown_${Date.now()}.${fileExtension}`;
+    
+    const sharePointResult = await generateAnnotatedImageToSharePoint(
+      analyseOutput,           // Analyzed text regions
+      imageBuffer,             // Original image buffer
+      originalFileName,        // Original filename for naming
+      context,                 // Azure Functions context
+      companyName             // Company name for folder organization
+    );
+
+    if (sharePointResult) {
+      logMessage(`✅ Successfully uploaded annotated image to SharePoint`, context);
+      logMessage(`🔗 SharePoint result: ${JSON.stringify(sharePointResult)}`, context);
+    } else {
+      logMessage(`⚠️ Failed to upload annotated image to SharePoint, but continuing...`, context);
+    }
+
+    // Step 3: Move original file to processed folder
+    logMessage(`📦 Moving original file to processed-attachments/${companyName}/general-extraction`, context);
+
+    await moveBlob(context, blobName, {
+      sourceContainerName: 'incoming-emails',
+      targetContainerName: 'processed-attachments',
+      targetSubfolder: `${companyName}/general-extraction`
+    });
+
+    logMessage(`✅ Successfully processed unknown file type: ${blobName}`, context);
+    logMessage(`📊 Summary: Found ${analyseOutput.length} text regions, uploaded annotated image to SharePoint`, context);
+
+  } catch (error) {
+    logMessage(`❌ Error during general form extraction: ${error.message}`, context);
+    handleError("❌ Error during general form extraction", error, context);
+    
+    // Move to error folder on failure
+    try {
+      await moveBlob(context, blobName, {
+        sourceContainerName: 'incoming-emails',
+        targetContainerName: 'processed-attachments',
+        targetSubfolder: `${companyName}/extraction-errors`
+      });
+      logMessage(`📦 Moved failed file to extraction-errors folder`, context);
+    } catch (moveError) {
+      logMessage(`❌ Failed to move error file: ${moveError.message}`, context);
+    }
   }
 }
 
