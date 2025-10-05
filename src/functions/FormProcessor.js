@@ -114,8 +114,11 @@ app.storageBlob('FormProcessor', {
         return;
       } else {
         logMessage(`⚠️ OCR failed to detect title. Trying to extract contents from it using general AI.`, context);
+        const base64Raw = blob.toString('base64');
+        const fileExtension = parsed.extension.replace('.', '');
+        const companyName = parsed.companyName;
         await processUnknownFileType(context, {
-          title: detectedTitle,
+          title: unknown_doc_type,
           base64Raw,
           fileExtension,
           blobName,
