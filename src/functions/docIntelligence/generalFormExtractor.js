@@ -898,3 +898,4 @@ module.exports = {
   analyseAndExtract,
   generateAnnotatedImage,
   generateAnnotatedImageToSharePoint
+};
