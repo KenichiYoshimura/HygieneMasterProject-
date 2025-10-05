@@ -245,6 +245,7 @@ async function processUnknownFileType(context, {
       
       // Move to processed folder even if no text found
       await moveBlob(context, blobName, {
+        connectionString: process.env['hygienemasterstorage_STORAGE'],
         sourceContainerName: 'incoming-emails',
         targetContainerName: 'processed-attachments',
         targetSubfolder: `${companyName}/no-text-detected`
@@ -265,10 +266,71 @@ async function processUnknownFileType(context, {
       });
     }
 
-    // Step 2: Generate and upload annotated image to SharePoint
-    logMessage(`🖼️ Generating annotated image for SharePoint upload...`, context);
+    // Step 2: Upload JSON structure to SharePoint
+    logMessage(`📤 Uploading analysis JSON to SharePoint...`, context);
     
     const originalFileName = blobName.split(')')[1] || `unknown_${Date.now()}.${fileExtension}`;
+    const baseName = originalFileName.replace(/\.[^/.]+$/, "");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // Create SharePoint folder path (same as annotated image)
+    const basePath = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
+    const folderPath = `${basePath}/${companyName}`;
+    
+    // Import SharePoint functions
+    const { ensureSharePointFolder, uploadJsonToSharePoint } = require('./sharepoint/sendToSharePoint');
+    
+    // Ensure folder exists
+    await ensureSharePointFolder(folderPath, context);
+    
+    // Prepare JSON report with metadata
+    const analysisJsonReport = {
+      metadata: {
+        originalFileName: originalFileName,
+        processedDate: new Date().toISOString(),
+        companyName: companyName,
+        fileExtension: fileExtension,
+        mimeType: mimeType,
+        totalTextRegions: analyseOutput.length,
+        handwrittenRegions: analyseOutput.filter(region => region.isHandwritten).length,
+        printedRegions: analyseOutput.filter(region => !region.isHandwritten).length,
+        documentType: 'unknown_general_extraction'
+      },
+      extractedData: {
+        textRegions: analyseOutput,
+        extractionMethod: 'Azure Document Intelligence (Layout + Read)',
+        ocrPriority: true,
+        tableDetection: analyseOutput.some(region => region.bbox), // Check if any regions detected
+        handwritingDetection: analyseOutput.some(region => region.isHandwritten)
+      },
+      summary: {
+        extractedTextSample: analyseOutput.slice(0, 5).map((region, idx) => ({
+          regionIndex: idx,
+          text: region.displayText?.slice(0, 100) + (region.displayText?.length > 100 ? '...' : ''),
+          isHandwritten: region.isHandwritten,
+          boundingBox: region.bbox,
+          orientation: region.orientationDeg
+        }))
+      }
+    };
+    
+    const jsonFileName = `一般抽出データ-${baseName}-${timestamp}.json`;
+    
+    const jsonUploadResult = await uploadJsonToSharePoint(
+      analysisJsonReport,
+      jsonFileName,
+      folderPath,
+      context
+    );
+    
+    if (jsonUploadResult) {
+      logMessage(`✅ Successfully uploaded analysis JSON to SharePoint: ${jsonFileName}`, context);
+    } else {
+      logMessage(`⚠️ Failed to upload analysis JSON to SharePoint, but continuing...`, context);
+    }
+
+    // Step 3: Generate and upload annotated image to SharePoint
+    logMessage(`🖼️ Generating annotated image for SharePoint upload...`, context);
     
     const sharePointResult = await generateAnnotatedImageToSharePoint(
       analyseOutput,           // Analyzed text regions
@@ -285,10 +347,11 @@ async function processUnknownFileType(context, {
       logMessage(`⚠️ Failed to upload annotated image to SharePoint, but continuing...`, context);
     }
 
-    // Step 3: Move original file to processed folder
+    // Step 4: Move original file to processed folder
     logMessage(`📦 Moving original file to processed-attachments/${companyName}/general-extraction`, context);
 
     await moveBlob(context, blobName, {
+      connectionString: process.env['hygienemasterstorage_STORAGE'],
       sourceContainerName: 'incoming-emails',
       targetContainerName: 'processed-attachments',
       targetSubfolder: `${companyName}/general-extraction`
@@ -304,6 +367,7 @@ async function processUnknownFileType(context, {
     // Move to error folder on failure
     try {
       await moveBlob(context, blobName, {
+        connectionString: process.env['hygienemasterstorage_STORAGE'],
         sourceContainerName: 'incoming-emails',
         targetContainerName: 'processed-attachments',
         targetSubfolder: `${companyName}/extraction-errors`
