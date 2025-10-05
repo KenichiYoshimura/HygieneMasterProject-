@@ -8,9 +8,11 @@
   },
   "dependencies": {
     "@azure/ai-form-recognizer": "^5.1.0",
-    "@azure/functions": "^4.7.2-preview",
+    "@azure/functions": "^4.8.0",
     "@azure/storage-blob": "^12.28.0",
+    "@napi-rs/canvas": "^0.1.80",
     "axios": "^1.12.2",
+    "dotenv": "^17.2.3",
     "form-data": "^4.0.4",
     "heic-convert": "^2.1.0",
     "mime-types": "^3.0.1"

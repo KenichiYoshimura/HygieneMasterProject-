@@ -5,7 +5,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const { AzureKeyCredential, DocumentAnalysisClient } = require("@azure/ai-form-recognizer");
-const { createCanvas, loadImage } = require('canvas');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -702,8 +702,7 @@ async function generateAnnotatedImage(analyseOutput, imageBuffer, originalFileNa
     // Create temporary file for local processing
     const tempDir = os.tmpdir();
     const tempImagePath = path.join(tempDir, `temp_${Date.now()}_${originalFileName}`);
-    const outFile = path.join(tempDir, `${path.basename(originalFileName, path.extname(originalFileName))}_ANNOTATED.png`);
-
+    
     // Write buffer to temp file
     fs.writeFileSync(tempImagePath, imageBuffer);
 
@@ -800,34 +799,17 @@ async function generateAnnotatedImage(analyseOutput, imageBuffer, originalFileNa
       }
     });
 
-    const out = fs.createWriteStream(outFile);
-    const stream = canvas.createPNGStream();
-    stream.pipe(out);
-
-    return new Promise((resolve) => {
-      out.on('finish', () => {
-        // Clean up temp files
-        try {
-          fs.unlinkSync(tempImagePath);
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-        
-        logMessage(`✅ Annotated image saved as ${outFile}`, context);
-        resolve(outFile);
-      });
-      out.on('error', (err) => {
-        // Clean up temp files on error
-        try {
-          fs.unlinkSync(tempImagePath);
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-        
-        handleError(err, 'generateAnnotatedImage', context);
-        resolve(null);
-      });
-    });
+    // Generate PNG buffer and write to disk
+    const pngBuffer = canvas.toBuffer('image/png');
+    logMessage(`✅ Generated annotated image: ${pngBuffer.length} bytes`, context);
+    const outFile = path.join(
+      tempDir,
+      `${path.basename(originalFileName, path.extname(originalFileName))}_ANNOTATED.png`
+    );
+    fs.writeFileSync(outFile, pngBuffer);
+    // Clean up temp input image
+    try { fs.unlinkSync(tempImagePath); } catch (_) {}
+    return outFile;
   } catch (error) {
     handleError(error, 'generateAnnotatedImage', context);
     return null;
