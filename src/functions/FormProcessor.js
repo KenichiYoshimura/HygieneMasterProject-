@@ -117,8 +117,9 @@ app.storageBlob('FormProcessor', {
         const base64Raw = blob.toString('base64');
         const fileExtension = parsed.extension.replace('.', '');
         const companyName = parsed.companyName;
+        logMessage(`Company name is ${companyName} and fileExtension is ${fileExtension}`, context);
         await processUnknownFileType(context, {
-          title: unknown_doc_type,
+          title: 'unknown_doc_type',
           base64Raw,
           fileExtension,
           blobName,
