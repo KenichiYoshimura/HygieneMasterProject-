@@ -940,20 +940,21 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
     const baseName = originalFileName.replace(/\.[^/.]+$/, "");
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     
-    // ✅ Add current date in YYYY-MM-DD-HH-MM-SS format
-    const currentDate = new Date();
+    // ✅ Add current date in JST (YYYY-MM-DD-HH-MM-SS format)
+    const currentDateUTC = new Date();
+    const currentDateJST = new Date(currentDateUTC.getTime() + (9 * 60 * 60 * 1000)); // Add 9 hours for JST
     const dateFolder = [
-      currentDate.getFullYear(),
-      String(currentDate.getMonth() + 1).padStart(2, '0'),
-      String(currentDate.getDate()).padStart(2, '0'),
-      String(currentDate.getHours()).padStart(2, '0'),
-      String(currentDate.getMinutes()).padStart(2, '0'),
-      String(currentDate.getSeconds()).padStart(2, '0')
+      currentDateJST.getUTCFullYear(),
+      String(currentDateJST.getUTCMonth() + 1).padStart(2, '0'),
+      String(currentDateJST.getUTCDate()).padStart(2, '0'),
+      String(currentDateJST.getUTCHours()).padStart(2, '0'),
+      String(currentDateJST.getUTCMinutes()).padStart(2, '0'),
+      String(currentDateJST.getUTCSeconds()).padStart(2, '0')
     ].join('-');
     
     const basePath = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
     const folderPath = `${basePath}/${companyName}/${dateFolder}`;
-    logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
+    logMessage(`📁 Target SharePoint folder (JST): ${folderPath}`, context);
 
     // Import SharePoint functions
     const { ensureSharePointFolder, uploadJsonToSharePoint, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
