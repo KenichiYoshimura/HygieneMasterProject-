@@ -16,6 +16,8 @@ const { prepareGeneralManagementReport } = require('./sharepoint/generalManageme
 const { prepareImportantManagementReport } = require('./sharepoint/importantManagementReport');
 const { analyseAndExtract, generateAnnotatedImageToSharePoint } = require('./docIntelligence/generalFormExtractor');
 const { processUnknownDocument } = require('./docIntelligence/generalFormExtractor');
+// ✅ Add import for HTML report generation at the top of the file
+const { generateHtmlReportToSharePoint } = require('./docIntelligence/generalFormHtmlReport');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
@@ -267,14 +269,50 @@ async function processUnknownFileType(context, {
       return;
     }
 
-    // Success! Log results and move to processed folder
-    const { textRegions, handwrittenRegions, printedRegions, uploads } = processingResult;
+    // Success! Get the analysis data for HTML report
+    const { textRegions, handwrittenRegions, printedRegions, uploads, sharePointFolder, analysisData } = processingResult;
+    
+    // ✅ Generate HTML report using the extracted analysis data
+    logMessage(`📄 Generating HTML report for extracted data...`, context);
+    
+    try {
+      const htmlReportResult = await generateHtmlReportToSharePoint(
+        analysisData,           // The analyzed text regions
+        originalFileName,       // Original filename
+        context,               // Azure Functions context
+        companyName,           // Company name
+        sharePointFolder       // Same SharePoint folder as other uploads
+      );
+
+      if (htmlReportResult) {
+        logMessage(`✅ Successfully uploaded HTML report: ${htmlReportResult.fileName}`, context);
+        logMessage(`📊 HTML report size: ${htmlReportResult.fileSize} characters`, context);
+        
+        // Update upload tracking to include HTML report
+        uploads.htmlReport = true;
+      } else {
+        logMessage(`⚠️ Failed to upload HTML report, but continuing...`, context);
+        uploads.htmlReport = false;
+      }
+    } catch (htmlError) {
+      logMessage(`❌ Error generating HTML report: ${htmlError.message}`, context);
+      uploads.htmlReport = false;
+    }
+
+    // Calculate updated success metrics
     const successfulUploads = Object.values(uploads).filter(Boolean).length;
+    const totalUploads = Object.keys(uploads).length;
     
     logMessage(`✅ Processing successful!`, context);
     logMessage(`📊 Text regions: ${textRegions} (${handwrittenRegions} handwritten, ${printedRegions} printed)`, context);
-    logMessage(`📤 SharePoint uploads: ${successfulUploads}/3 successful`, context);
-    logMessage(`📁 SharePoint folder: ${processingResult.sharePointFolder}`, context);
+    logMessage(`📤 SharePoint uploads: ${successfulUploads}/${totalUploads} successful`, context);
+    logMessage(`📁 SharePoint folder: ${sharePointFolder}`, context);
+    
+    // Log detailed upload status
+    Object.entries(uploads).forEach(([uploadType, success]) => {
+      const status = success ? '✅' : '❌';
+      logMessage(`  ${status} ${uploadType}: ${success ? 'SUCCESS' : 'FAILED'}`, context);
+    });
 
     // Move original file to processed folder
     await moveBlob(context, blobName, {

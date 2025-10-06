@@ -101,5 +101,3 @@ __azurite_db*__.json
 src/images/*
 src/imagesAnnotated/*
 src/FormExtractor.js
-src/functions/analytics/yysAI.js
-src/functions/docIntelligence/generalFormExtractory-working.js
