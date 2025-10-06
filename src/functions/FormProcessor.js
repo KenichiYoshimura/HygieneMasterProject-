@@ -276,6 +276,12 @@ async function processUnknownFileType(context, {
     logMessage(`📄 Generating HTML report for extracted data...`, context);
     
     try {
+      logMessage(`🔄 Calling generateHtmlReportToSharePoint with:`, context);
+      logMessage(`  - analysisData length: ${analysisData ? analysisData.length : 'null'}`, context);
+      logMessage(`  - originalFileName: ${originalFileName}`, context);
+      logMessage(`  - companyName: ${companyName}`, context);
+      logMessage(`  - sharePointFolder: ${sharePointFolder}`, context);
+      
       const htmlReportResult = await generateHtmlReportToSharePoint(
         analysisData,           // The analyzed text regions
         originalFileName,       // Original filename
@@ -287,15 +293,14 @@ async function processUnknownFileType(context, {
       if (htmlReportResult) {
         logMessage(`✅ Successfully uploaded HTML report: ${htmlReportResult.fileName}`, context);
         logMessage(`📊 HTML report size: ${htmlReportResult.fileSize} characters`, context);
-        
-        // Update upload tracking to include HTML report
         uploads.htmlReport = true;
       } else {
-        logMessage(`⚠️ Failed to upload HTML report, but continuing...`, context);
+        logMessage(`⚠️ HTML report generation returned null`, context);
         uploads.htmlReport = false;
       }
     } catch (htmlError) {
       logMessage(`❌ Error generating HTML report: ${htmlError.message}`, context);
+      logMessage(`❌ HTML error stack: ${htmlError.stack}`, context);
       uploads.htmlReport = false;
     }
 

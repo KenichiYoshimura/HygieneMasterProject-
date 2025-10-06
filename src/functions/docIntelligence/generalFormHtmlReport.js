@@ -136,7 +136,7 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
 }
 
 /**
- * Generate HTML report and upload to SharePoint
+ * Generate HTML report and upload to SharePoint (with enhanced debugging)
  * @param {Array} analyseOutput - Text regions with bbox, text, etc.
  * @param {string} originalFileName - Original filename
  * @param {Object} context - Azure Functions context
@@ -152,55 +152,74 @@ async function generateHtmlReportToSharePoint(analyseOutput, originalFileName, c
   }
 
   try {
-    logMessage(`📄 Generating HTML report for SharePoint upload...`, context);
+    logMessage(`📄 Starting HTML report generation for SharePoint upload...`, context);
     logMessage(`📁 Target folder: ${folderPath}`, context);
+    logMessage(`📊 Input data: ${analyseOutput.length} text regions`, context);
 
-    // Generate HTML content
-    const htmlContent = produceHtml(analyseOutput, originalFileName, context, options);
+    // ✅ Generate HTML content (now async for language detection)
+    logMessage(`🌐 Generating HTML content with language detection...`, context);
+    const htmlContent = await produceHtml(analyseOutput, originalFileName, context, options);
 
     if (!htmlContent) {
-      logMessage(`❌ Failed to generate HTML content`, context);
+      logMessage(`❌ Failed to generate HTML content - content is null/undefined`, context);
       return null;
     }
+
+    logMessage(`✅ HTML content generated successfully: ${htmlContent.length} characters`, context);
 
     // Prepare SharePoint upload
     const baseName = path.basename(originalFileName, path.extname(originalFileName));
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const htmlFileName = `文書解析レポート-${baseName}-${timestamp}.html`;
 
-    logMessage(`📤 Uploading HTML report to SharePoint: ${htmlFileName}`, context);
+    logMessage(`📤 Preparing SharePoint upload: ${htmlFileName}`, context);
 
     // Import SharePoint helpers
-    const { ensureSharePointFolder, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
+    try {
+      const { ensureSharePointFolder, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
+      logMessage(`✅ SharePoint helpers imported successfully`, context);
 
-    // Ensure folder exists
-    await ensureSharePointFolder(folderPath, context);
+      // Ensure folder exists
+      logMessage(`📁 Ensuring SharePoint folder exists: ${folderPath}`, context);
+      await ensureSharePointFolder(folderPath, context);
+      logMessage(`✅ SharePoint folder ensured`, context);
 
-    // Convert HTML to base64 for upload
-    const base64HtmlContent = Buffer.from(htmlContent, 'utf8').toString('base64');
+      // Convert HTML to base64 for upload
+      logMessage(`🔄 Converting HTML to base64...`, context);
+      const base64HtmlContent = Buffer.from(htmlContent, 'utf8').toString('base64');
+      logMessage(`✅ HTML converted to base64: ${base64HtmlContent.length} characters`, context);
 
-    // Upload to SharePoint
-    const sharePointResult = await uploadOriginalDocumentToSharePoint(
-      base64HtmlContent,
-      htmlFileName,
-      folderPath,
-      context
-    );
+      // Upload to SharePoint
+      logMessage(`📤 Starting SharePoint upload...`, context);
+      const sharePointResult = await uploadOriginalDocumentToSharePoint(
+        base64HtmlContent,
+        htmlFileName,
+        folderPath,
+        context
+      );
 
-    if (sharePointResult) {
-      logMessage(`✅ Successfully uploaded HTML report to SharePoint: ${htmlFileName}`, context);
-      return {
-        success: true,
-        fileName: htmlFileName,
-        fileSize: htmlContent.length,
-        uploadResult: sharePointResult
-      };
-    } else {
-      logMessage(`❌ Failed to upload HTML report to SharePoint`, context);
-      return null;
+      if (sharePointResult) {
+        logMessage(`✅ Successfully uploaded HTML report to SharePoint: ${htmlFileName}`, context);
+        return {
+          success: true,
+          fileName: htmlFileName,
+          fileSize: htmlContent.length,
+          uploadResult: sharePointResult
+        };
+      } else {
+        logMessage(`❌ SharePoint upload returned null/false`, context);
+        return null;
+      }
+
+    } catch (importError) {
+      logMessage(`❌ Failed to import SharePoint helpers: ${importError.message}`, context);
+      logMessage(`❌ Import error stack: ${importError.stack}`, context);
+      throw importError;
     }
 
   } catch (error) {
+    logMessage(`❌ HTML report generation failed: ${error.message}`, context);
+    logMessage(`❌ Error stack: ${error.stack}`, context);
     handleError(error, 'generateHtmlReportToSharePoint', context);
     return null;
   }
@@ -861,18 +880,21 @@ function generateErrorHtml(originalFileName, error) {
 }
 
 /**
- * Enhanced function using the new lightweight language detection
+ * ✅ Enhanced function using the new lightweight language detection
  */
 async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
-  logMessage(`🌐 Detecting languages and translating text regions...`, context);
+  logMessage(`🌐 Starting language detection for ${analyseOutput.length} text regions...`, context);
   
   const enhancedRegions = [];
+  let successCount = 0;
+  let errorCount = 0;
   
   for (let i = 0; i < analyseOutput.length; i++) {
     const entry = analyseOutput[i];
     const text = entry.displayText || '';
     
     if (!text.trim()) {
+      // Empty text - skip language detection
       enhancedRegions.push({
         ...entry,
         detectedLanguage: 'N/A',
@@ -884,23 +906,33 @@ async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
     }
 
     try {
-      // ✅ Use the new lightweight function (no sentiment analysis)
+      // ✅ Use the lightweight language detection function
       const languageResult = await detectLanguageAndTranslate(text);
       
       if (languageResult.error) {
-        throw new Error(languageResult.error);
+        logMessage(`⚠️ Language detection error for region ${i + 1}: ${languageResult.error}`, context);
+        errorCount++;
+        enhancedRegions.push({
+          ...entry,
+          detectedLanguage: 'Error',
+          languageConfidence: 0,
+          japaneseTranslation: '',
+          needsTranslation: false
+        });
+      } else {
+        successCount++;
+        enhancedRegions.push({
+          ...entry,
+          detectedLanguage: languageResult.detectedLanguage,
+          languageConfidence: languageResult.languageConfidence,
+          japaneseTranslation: languageResult.japaneseTranslation || '',
+          needsTranslation: languageResult.needsTranslation
+        });
       }
       
-      enhancedRegions.push({
-        ...entry,
-        detectedLanguage: languageResult.detectedLanguage,
-        languageConfidence: languageResult.languageConfidence,
-        japaneseTranslation: languageResult.japaneseTranslation || '',
-        needsTranslation: languageResult.needsTranslation
-      });
-      
     } catch (error) {
-      logMessage(`❌ Language detection failed for region ${i}: ${error.message}`, context);
+      logMessage(`❌ Language detection exception for region ${i + 1}: ${error.message}`, context);
+      errorCount++;
       enhancedRegions.push({
         ...entry,
         detectedLanguage: 'Error',
@@ -911,42 +943,132 @@ async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
     }
   }
   
-  logMessage(`✅ Language detection complete for ${enhancedRegions.length} regions`, context);
+  logMessage(`✅ Language detection complete: ${successCount} success, ${errorCount} errors`, context);
   return enhancedRegions;
 }
 
 /**
- * ✅ Generate language detection summary (updated to use existing function)
+ * ✅ Fallback HTML generation if language detection fails
  */
-function generateLanguageSummary(analyseOutput) {
-  const languageStats = {};
-  const translationNeeded = analyseOutput.filter(entry => entry.needsTranslation).length;
-  
-  analyseOutput.forEach(entry => {
-    const lang = entry.detectedLanguage || 'Unknown';
-    languageStats[lang] = (languageStats[lang] || 0) + 1;
-  });
+async function produceHtml(analyseOutput, originalFileName, context, options = {}) {
+  if (!Array.isArray(analyseOutput) || analyseOutput.length === 0) {
+    return generateEmptyHtml(originalFileName);
+  }
 
-  const sortedLanguages = Object.entries(languageStats)
-    .sort(([,a], [,b]) => b - a)
-    .slice(0, 5); // Top 5 languages
+  try {
+    logMessage(`📄 Generating HTML report for ${analyseOutput.length} text regions...`, context);
 
-  return `
-    <div class="language-summary-section">
-      <h2>🌐 言語検出サマリー</h2>
-      <div class="language-grid">
-        ${sortedLanguages.map(([lang, count]) => `
-          <div class="language-item">
-            <div class="language-name">${getLanguageNameInJapanese(lang)}</div>
-            <div class="language-count">${count}件</div>
-          </div>
-        `).join('')}
-        <div class="translation-item">
-          <div class="translation-label">翻訳対象</div>
-          <div class="translation-count">${translationNeeded}件</div>
-        </div>
-      </div>
-    </div>`;
+    // ✅ Try language detection, but fall back if it fails
+    let enhancedRegions;
+    try {
+      logMessage(`🌐 Attempting language detection...`, context);
+      enhancedRegions = await enhanceTextRegionsWithLanguage(analyseOutput, context);
+      logMessage(`✅ Language detection completed`, context);
+    } catch (languageError) {
+      logMessage(`⚠️ Language detection failed, using original data: ${languageError.message}`, context);
+      // Fall back to original data without language info
+      enhancedRegions = analyseOutput.map(entry => ({
+        ...entry,
+        detectedLanguage: 'N/A',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      }));
+    }
+
+    // Configuration
+    const config = {
+      scaleFactor: options.scaleFactor || 0.3,
+      cellPadding: options.cellPadding || 8,
+      showBoundingBoxes: options.showBoundingBoxes !== false,
+      showOrientation: options.showOrientation !== false,
+      showHandwriting: options.showHandwriting !== false,
+      showLanguage: options.showLanguage !== false,
+      showTranslation: options.showTranslation !== false,
+      groupByRows: options.groupByRows !== false,
+      ...options
+    };
+
+    // Find document boundaries
+    const allBboxes = enhancedRegions.map(entry => entry.bbox).filter(Boolean);
+    const docBounds = {
+      minX: Math.min(...allBboxes.map(b => b[0])),
+      minY: Math.min(...allBboxes.map(b => b[1])),
+      maxX: Math.max(...allBboxes.map(b => b[2])),
+      maxY: Math.max(...allBboxes.map(b => b[3]))
+    };
+
+    const docWidth = docBounds.maxX - docBounds.minX;
+    const docHeight = docBounds.maxY - docBounds.minY;
+
+    logMessage(`📐 Document bounds: ${docWidth}x${docHeight} pixels`, context);
+
+    // Group text regions by approximate rows (if enabled)
+    const textRegions = config.groupByRows 
+      ? groupTextIntoRows(enhancedRegions, docBounds)
+      : enhancedRegions.map(entry => ({ ...entry, rowIndex: 0 }));
+
+    // Generate HTML
+    const html = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文書解析レポート - ${escapeHtml(originalFileName)}</title>
+    <style>
+        ${generateCSS(config)}
+    </style>
+</head>
+<body>
+    <div class="container">
+        ${generateHeader(originalFileName, enhancedRegions, docBounds)}
+        ${generateLanguageSummary(enhancedRegions)}
+        ${generateSpatialLayout(textRegions, docBounds, config)}
+        ${generateDataTable(enhancedRegions, config)}
+        ${generateSummary(enhancedRegions)}
+    </div>
+    
+    <script>
+        // JavaScript for click-to-scroll functionality
+        function scrollToTableRow(index) {
+            const previousHighlighted = document.querySelector('.data-table tr.highlighted');
+            if (previousHighlighted) {
+                previousHighlighted.classList.remove('highlighted');
+            }
+            
+            const targetRow = document.querySelector('.data-table tbody tr[data-index="' + index + '"]');
+            if (targetRow) {
+                targetRow.classList.add('highlighted');
+                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => targetRow.classList.remove('highlighted'), 3000);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const regions = document.querySelectorAll('.text-region');
+            regions.forEach(region => {
+                region.addEventListener('mouseenter', function() {
+                    this.style.zIndex = '100';
+                });
+                region.addEventListener('mouseleave', function() {
+                    this.style.zIndex = '1';
+                });
+            });
+        });
+    </script>
+</body>
+</html>`;
+
+    logMessage(`✅ Generated HTML report: ${html.length} characters`, context);
+    return html;
+
+  } catch (error) {
+    logMessage(`❌ HTML generation failed: ${error.message}`, context);
+    logMessage(`❌ Error stack: ${error.stack}`, context);
+    handleError(error, 'produceHtml', context);
+    return generateErrorHtml(originalFileName, error);
+  }
 }
 
 /* -----------------------------------------------------------------------------
