@@ -5,77 +5,16 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const { AzureKeyCredential, DocumentAnalysisClient } = require("@azure/ai-form-recognizer");
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const { logMessage, handleError } = require('../utils');
 
-/* ---------------------------------------
-   Font registration & constants (Noto Sans JP)
---------------------------------------- */
-try {
-  // Register Regular & Bold under the same family name
-  GlobalFonts.registerFromPath(
-    path.join(__dirname, './fonts/NotoSansJP-Regular.ttf'),
-    'Noto Sans JP'
-  );
-  GlobalFonts.registerFromPath(
-    path.join(__dirname, './fonts/NotoSansJP-Bold.ttf'),
-    'Noto Sans JP'
-  );
-} catch (e) {
-  // Log but don't fail indexing if fonts are missing
-  logMessage(`⚠️ Font registration failed: ${e.message}`, null);
-}
+// ✅ Import image rendering functions from the new module
+const { generateAnnotatedImage, generateAnnotatedImageToSharePoint } = require('./generalFormImageAnnotator');
 
-// Use this family consistently for measure & draw
-const FONT_FAMILY = '"Noto Sans JP", "Noto Sans", sans-serif';
-// Bold improves legibility in overlays; adjust if needed
-const DEFAULT_WEIGHT = 'bold';
-
-/* ---------------------------------------
-   Debug + rendering flags (env)
---------------------------------------- */
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV !== 'production';
-
-// Orientation & wrapping
-const FORCE_HORIZONTAL = process.env.DISPLAY_FORCE_HORIZONTAL === 'true'; // force 0°
-const ENABLE_WRAP      = process.env.DISPLAY_WRAP !== 'false';            // default: true
-
-// Unlimited wrapping by default (bounded by height). If set >0, hard cap.
-const WRAP_MAX_LINES_RAW = Number.parseInt(process.env.WRAP_MAX_LINES || '0', 10);
-const WRAP_MAX_LINES = Number.isFinite(WRAP_MAX_LINES_RAW) && WRAP_MAX_LINES_RAW > 0
-  ? WRAP_MAX_LINES_RAW
-  : Infinity;
-
-const WRAP_LINE_HEIGHT_MULT = Number.parseFloat(process.env.WRAP_LINE_HEIGHT_MULT || '1.15'); // tighter leading
-
-// Font & fill sizing
-const MAX_FONT_SIZE = Number.parseInt(process.env.MAX_FONT_SIZE || '72', 10);
-const MIN_FONT_SIZE = Number.parseInt(process.env.MIN_FONT_SIZE || '12', 10);
-const FILL_RATIO    = Number.parseFloat(process.env.FILL_RATIO    || '0.98'); // fill more of the box
-
-// Colors (category base colors)
-const PRINTED_FILL_COLOR     = process.env.FILL_PRINTED_COLOR     || '#1976D2'; // Blue 700
-const HANDWRITTEN_FILL_COLOR = process.env.FILL_HANDWRITTEN_COLOR || '#2E7D32'; // Green 700
-
-// Text colors (configurable via environment variables)
-const TEXT_COLOR         = process.env.TEXT_COLOR         || '#FFFFFF'; // White text by default
-const TEXT_OUTLINE_COLOR = process.env.TEXT_OUTLINE_COLOR || '#000000'; // Black outline by default
-
-// Opacity (box fill transparency ~30% by default)
-const BOX_ALPHA_RAW = Number.parseFloat(process.env.BOX_ALPHA || '0.3');
-const BOX_ALPHA = Number.isFinite(BOX_ALPHA_RAW) ? Math.max(0, Math.min(1, BOX_ALPHA_RAW)) : 0.3;
-
-// Orientation snapping (0° or 90°)
-const ORIENTATION_SNAP = process.env.ORIENTATION_SNAP !== 'false'; // default true
-
-/* ---------------------------------------
-   Azure setup
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Azure setup
+----------------------------------------------------------------------------- */
 const endpoint = process.env['CLASSIFIER_ENDPOINT'];
-const apiKey   = process.env['CLASSIFIER_ENDPOINT_AZURE_API_KEY'];
+const apiKey = process.env['CLASSIFIER_ENDPOINT_AZURE_API_KEY'];
 
 logMessage('🔧 Endpoint: ' + endpoint, null);
 logMessage('🔧 API Key: ' + (apiKey ? '[REDACTED]' : '❌ Missing API Key'), null);
@@ -85,9 +24,9 @@ if (!endpoint || !apiKey) {
 }
 const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
 
-/* ---------------------------------------
-   Geometry & angle helpers
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Geometry & angle helpers
+----------------------------------------------------------------------------- */
 function getBoundingBoxFromPolygon(polygon = []) {
   if (!polygon || polygon.length === 0) return [];
   const xs = polygon.map(p => p.x);
@@ -125,7 +64,7 @@ function angleFromPolygon(polygon) {
   const dx = polygon[1].x - polygon[0].x;
   const dy = polygon[1].y - polygon[0].y;
   const rad = Math.atan2(dy, dx);
-  let deg = rad * 180 / Math.PI; // [-180, 180]
+  let deg = rad * 180 / Math.PI;
   deg = ((deg % 180) + 180) % 180;
   return deg;
 }
@@ -144,9 +83,9 @@ function snapAngle0or90(deg) {
   return d0 <= d90 ? 0 : 90;
 }
 
-/* ---------------------------------------
-   CJK helpers & text normalization
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  CJK helpers & text normalization
+----------------------------------------------------------------------------- */
 function isMostlyCJK(str) {
   const s = String(str || '');
   const cjkMatches = s.match(/[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g) || [];
@@ -156,8 +95,6 @@ function isMostlyCJK(str) {
 /**
  * Consolidate layoutText and matchedOCR into one single display string.
  * PRIORITY: Use OCR text first, fallback to Layout text only if OCR is empty.
- * - For CJK: remove line-breaks WITHOUT adding spaces; strip spaces between adjacent CJK chars.
- * - For Latin: collapse newlines to single spaces and normalize whitespace.
  */
 function toSingleMergedText(layoutText, matchedOCRArr) {
   const rawLayout = (layoutText || '').trim();
@@ -165,7 +102,7 @@ function toSingleMergedText(layoutText, matchedOCRArr) {
   // ✅ OCR first, fallback to Layout
   let base = rawOCR || rawLayout || '';
   if (isMostlyCJK(base)) {
-    base = base.replace(/\s*\n\s*/g, ''); // remove newlines
+    base = base.replace(/\s*\n\s*/g, '');
     base = base.replace(
       /([\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF])\s+([\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF])/g,
       '$1$2'
@@ -177,14 +114,14 @@ function toSingleMergedText(layoutText, matchedOCRArr) {
   return base.trim();
 }
 
-/* ---------------------------------------
-   Handwritten detection via Layout.styles spans
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Handwritten detection via Layout.styles spans
+----------------------------------------------------------------------------- */
 function spansOverlap(spanA, spanB) {
   const aStart = spanA.offset;
-  const aEnd   = spanA.offset + spanA.length;
+  const aEnd = spanA.offset + spanA.length;
   const bStart = spanB.offset;
-  const bEnd   = spanB.offset + spanB.length;
+  const bEnd = spanB.offset + spanB.length;
   return Math.min(aEnd, bEnd) > Math.max(aStart, bStart);
 }
 
@@ -198,9 +135,9 @@ function isLineHandwritten(lineSpans = [], handwrittenStyleSpans = []) {
   return false;
 }
 
-/* ---------------------------------------
-   Group by table cells
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Group by table cells
+----------------------------------------------------------------------------- */
 function groupByTableCells(layoutResult, structuredOutput, context) {
   if (!layoutResult.tables || !layoutResult.tables.length) {
     logMessage('No tables detected by layout model.', context);
@@ -236,7 +173,7 @@ function groupByTableCells(layoutResult, structuredOutput, context) {
       if (linesInCell.length) {
         linesInCell.forEach(({ idx }) => used.add(idx));
         const mergedText = linesInCell.map(({ line }) => line.layoutText).join('\n');
-        const mergedOCR  = linesInCell.flatMap(({ line }) => line.matchedOCR);
+        const mergedOCR = linesInCell.flatMap(({ line }) => line.matchedOCR);
 
         const xs = linesInCell.flatMap(({ line }) => [line.bbox[0], line.bbox[2]]);
         const ys = linesInCell.flatMap(({ line }) => [line.bbox[1], line.bbox[3]]);
@@ -246,7 +183,7 @@ function groupByTableCells(layoutResult, structuredOutput, context) {
           .map(({ line }) => angleFromPolygon(line.polygon))
           .filter(a => a != null && Number.isFinite(a));
         const medianAngle = median(angles);
-        const snappedDeg = ORIENTATION_SNAP ? snapAngle0or90(medianAngle) : (medianAngle ?? 0);
+        const snappedDeg = snapAngle0or90(medianAngle) || 0;
         const groupIsHandwritten = linesInCell.some(({ line }) => line.isHandwritten);
 
         const displayText = toSingleMergedText(mergedText, mergedOCR);
@@ -256,8 +193,8 @@ function groupByTableCells(layoutResult, structuredOutput, context) {
           displayText,
           bbox,
           polygon: cellPolygon,
-          orientationDeg: snappedDeg, // 0 or 90 by default
-          isHandwritten: groupIsHandwritten // boolean
+          orientationDeg: snappedDeg,
+          isHandwritten: groupIsHandwritten
         });
 
         logMessage(
@@ -274,13 +211,13 @@ function groupByTableCells(layoutResult, structuredOutput, context) {
   return groups.length ? { groups, used } : null;
 }
 
-/* ---------------------------------------
-   Fallback: group bounding boxes by adjacency/alignment
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Fallback: group bounding boxes by adjacency/alignment
+----------------------------------------------------------------------------- */
 function groupBoundingBoxes(boxes, yThreshold = 40, xThreshold = 30, context) {
   logMessage(`Fallback grouping: yThreshold=${yThreshold}, xThreshold=${xThreshold}`, context);
 
-  boxes.sort((a, b) => a.bbox[1] - b.bbox[1]); // sort by top y
+  boxes.sort((a, b) => a.bbox[1] - b.bbox[1]);
   const groups = [];
   let currentGroup = [];
 
@@ -294,10 +231,10 @@ function groupBoundingBoxes(boxes, yThreshold = 40, xThreshold = 30, context) {
 
     const verticalGap = curr.bbox[1] - prev.bbox[3];
 
-    const leftAligned   = Math.abs(curr.bbox[0] - prev.bbox[0]) < xThreshold;
-    const rightAligned  = Math.abs(curr.bbox[2] - prev.bbox[2]) < xThreshold;
-    const centerPrev    = (prev.bbox[0] + prev.bbox[2]) / 2;
-    const centerCurr    = (curr.bbox[0] + curr.bbox[2]) / 2;
+    const leftAligned = Math.abs(curr.bbox[0] - prev.bbox[0]) < xThreshold;
+    const rightAligned = Math.abs(curr.bbox[2] - prev.bbox[2]) < xThreshold;
+    const centerPrev = (prev.bbox[0] + prev.bbox[2]) / 2;
+    const centerCurr = (curr.bbox[0] + curr.bbox[2]) / 2;
     const centerAligned = Math.abs(centerCurr - centerPrev) < xThreshold;
 
     const horizontallyAligned = leftAligned || rightAligned || centerAligned;
@@ -330,7 +267,7 @@ function mergeGroups(groups, context) {
       .map(g => angleFromPolygon(g.polygon))
       .filter(a => a != null && Number.isFinite(a));
     const medianAngle = median(angles);
-    const snappedDeg = ORIENTATION_SNAP ? snapAngle0or90(medianAngle) : (medianAngle ?? 0);
+    const snappedDeg = snapAngle0or90(medianAngle) || 0;
 
     const displayText = toSingleMergedText(allText, allMatchedOCR);
     const groupIsHandwritten = group.some(g => g.isHandwritten);
@@ -350,9 +287,9 @@ function mergeGroups(groups, context) {
   return merged;
 }
 
-/* ---------------------------------------
-   Analysis pipeline
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Analysis pipeline
+----------------------------------------------------------------------------- */
 async function analyseAndExtract(buffer, mimeType, context) {
   try {
     logMessage('Starting analyseAndExtract...', context);
@@ -374,7 +311,7 @@ async function analyseAndExtract(buffer, mimeType, context) {
         layoutText: line.content,
         bbox: getBoundingBoxFromPolygon(line.polygon),
         polygon: line.polygon,
-        spans: line.spans || [], // offset/length spans
+        spans: line.spans || [],
         pageIndex: pIdx,
         lineIndex: lIdx
       }))
@@ -404,26 +341,13 @@ async function analyseAndExtract(buffer, mimeType, context) {
     logMessage(`Cross-referencing Layout->OCR with IoU threshold ${IOU_THRESHOLD}...`, context);
 
     const structuredOutput = layoutSections.map(section => {
-      // Find OCR lines that overlap with this layout section
       const matchedOCRLines = ocrLines.filter(ocr => calculateIoU(section.bbox, ocr.bbox) > IOU_THRESHOLD);
-      // Extract text from matched OCR lines
       const matchedTexts = matchedOCRLines.map(ocr => ocr.text);
       const isHW = isLineHandwritten(section.spans || [], handwrittenStyleSpans);
 
-      if (matchedTexts.length > 0) {
-        const ocrText = matchedTexts.join(' ').trim();
-        const layoutText = section.layoutText.trim();
-        if (ocrText !== layoutText && DEBUG) {
-          logMessage(`Text difference detected:`, context);
-          logMessage(` Layout: "${layoutText}"`, context);
-          logMessage(` OCR:    "${ocrText}"`, context);
-          logMessage(` Using:  "${ocrText}" (OCR priority)`, context);
-        }
-      }
-
       return {
-        layoutText: section.layoutText,   // Keep for fallback
-        matchedOCR: matchedTexts,         // Primary text source
+        layoutText: section.layoutText,
+        matchedOCR: matchedTexts,
         bbox: section.bbox,
         polygon: section.polygon,
         spans: section.spans || [],
@@ -438,10 +362,8 @@ async function analyseAndExtract(buffer, mimeType, context) {
     let merged = [];
     const tableGrouping = groupByTableCells(layoutResult, structuredOutput, context);
     if (tableGrouping) {
-      // (6a) add cell-based groups
       merged.push(...tableGrouping.groups);
 
-      // (6b) group leftover lines (headers/titles/etc.) not inside any cell
       const leftovers = structuredOutput.filter((_, idx) => !tableGrouping.used.has(idx));
       logMessage(`Leftover lines outside tables: ${leftovers.length}`, context);
 
@@ -452,31 +374,12 @@ async function analyseAndExtract(buffer, mimeType, context) {
         logMessage(`Appended ${mergedLeftovers.length} leftover groups (non-table regions).`, context);
       }
     } else {
-      // No table detected — use spatial grouping for all lines
       const grouped = groupBoundingBoxes(structuredOutput, 40, 30, context);
       merged = mergeGroups(grouped, context);
     }
 
     console.timeEnd('analyseAndExtract');
     logMessage(`Returning ${merged.length} merged entries.`, context);
-
-    // ✅ Enhanced logging to show OCR priority in action
-    if (DEBUG) {
-      logMessage('Sample merged entries with OCR priority:', context);
-      merged.slice(0, 3).forEach((entry, idx) => {
-        const hasOCR = entry.matchedOCR && entry.matchedOCR.length > 0;
-        const ocrText = hasOCR ? entry.matchedOCR.join(' ').trim() : '';
-        const layoutText = entry.layoutText || '';
-        const usedText = entry.displayText || '';
-        logMessage(
-          ` [${idx}] OCR: "${ocrText}"`
-          + `\n Layout: "${layoutText}"`
-          + `\n Used: "${usedText}"`
-          + `\n Source: ${hasOCR ? 'OCR' : 'Layout'}`,
-          context
-        );
-      });
-    }
 
     return merged;
   } catch (error) {
@@ -485,422 +388,9 @@ async function analyseAndExtract(buffer, mimeType, context) {
   }
 }
 
-/* ---------------------------------------
-   Text fitting & wrapping (uses Noto Sans JP)
---------------------------------------- */
-function fitTextToBox(
-  ctx,
-  text,
-  effWidth,
-  effHeight,
-  maxFontSize = MAX_FONT_SIZE,
-  minFontSize = MIN_FONT_SIZE
-) {
-  let fontSize = maxFontSize;
-  const targetW = effWidth  * FILL_RATIO;
-  const targetH = effHeight * FILL_RATIO;
-
-  while (fontSize >= minFontSize) {
-    ctx.font = `${DEFAULT_WEIGHT} ${fontSize}px ${FONT_FAMILY}`;
-    const m = ctx.measureText(text);
-    const w = m.width;
-    const h = fontSize * WRAP_LINE_HEIGHT_MULT;
-    if (w <= targetW && h <= targetH) break;
-    fontSize -= 2;
-  }
-  if (fontSize < minFontSize) fontSize = minFontSize;
-  if (fontSize > maxFontSize) fontSize = maxFontSize;
-  return fontSize;
-}
-
-function wrapTextToBox(
-  ctx,
-  text,
-  effWidth,
-  effHeight,
-  maxFontSize = MAX_FONT_SIZE,
-  minFontSize = MIN_FONT_SIZE
-) {
-  const isCJK = isMostlyCJK(text);
-
-  function buildLines(fontSize) {
-    ctx.font = `${DEFAULT_WEIGHT} ${fontSize}px ${FONT_FAMILY}`;
-    const maxWidth = effWidth * FILL_RATIO;
-    const lines = [];
-
-    if (isCJK) {
-      let current = '';
-      for (const ch of text) {
-        const trial = current + ch;
-        const w = ctx.measureText(trial).width;
-        if (w <= maxWidth) {
-          current = trial;
-        } else {
-          lines.push(current);
-          current = ch;
-        }
-      }
-      if (current) lines.push(current);
-    } else {
-      const words = text.split(/\s+/).filter(Boolean);
-      let current = '';
-      for (const word of words) {
-        const trial = current ? `${current} ${word}` : word;
-        const w = ctx.measureText(trial).width;
-        if (w <= maxWidth) {
-          current = trial;
-        } else {
-          lines.push(current);
-          current = word;
-        }
-      }
-      if (current) lines.push(current);
-    }
-    return lines;
-  }
-
-  let fontSize = maxFontSize;
-  while (fontSize >= minFontSize) {
-    const lines = buildLines(fontSize);
-    const lineHeight = fontSize * WRAP_LINE_HEIGHT_MULT;
-    const totalHeight = lines.length * lineHeight;
-
-    if (lines.length > 0 && totalHeight <= effHeight * FILL_RATIO && lines.length <= WRAP_MAX_LINES) {
-      return { fontSize, lines };
-    }
-    fontSize -= 2;
-  }
-
-  const lines = buildLines(minFontSize);
-  const clipped = lines.slice(0, WRAP_MAX_LINES);
-  return { fontSize: minFontSize, lines: clipped };
-}
-
-/* ---------------------------------------
-   Annotated image generation with SharePoint upload
---------------------------------------- */
-/**
- * Generate annotated image and upload to SharePoint using existing SharePoint functions
- */
-async function generateAnnotatedImageToSharePoint(analyseOutput, originalImageBuffer, originalFileName, context, companyName, folderPath) {
-  if (!Array.isArray(analyseOutput)) {
-    handleError(new Error('Invalid analyseOutput input'), 'generateAnnotatedImageToSharePoint', context);
-    return null;
-  }
-
-  try {
-    logMessage(`🖼️ Generating annotated image for SharePoint upload...`, context);
-    logMessage(
-      `Render flags: FORCE_HORIZONTAL=${FORCE_HORIZONTAL}, ENABLE_WRAP=${ENABLE_WRAP}, `
-      + `WRAP_MAX_LINES=${WRAP_MAX_LINES === Infinity ? '∞' : WRAP_MAX_LINES}, WRAP_LINE_HEIGHT_MULT=${WRAP_LINE_HEIGHT_MULT}, `
-      + `MAX_FONT_SIZE=${MAX_FONT_SIZE}, FILL_RATIO=${FILL_RATIO}, BOX_ALPHA=${BOX_ALPHA}`,
-      context
-    );
-    logMessage(
-      `Colors: PRINTED=${PRINTED_FILL_COLOR}, HANDWRITTEN=${HANDWRITTEN_FILL_COLOR}, `
-      + `TEXT=${TEXT_COLOR}, OUTLINE=${TEXT_OUTLINE_COLOR}`,
-      context
-    );
-
-    // Load image from buffer
-    const image = await loadImage(originalImageBuffer);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext('2d');
-
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-
-    logMessage(`Drawing ${analyseOutput.length} merged entries...`, context);
-
-    analyseOutput.forEach((entry, idx) => {
-      const bbox = entry.bbox;
-      const polygon = entry.polygon;
-
-      if (bbox && bbox.length === 4 && polygon && polygon.length >= 2) {
-        const boxWidth  = bbox[2] - bbox[0];
-        const boxHeight = bbox[3] - bbox[1];
-
-        const isHW = !!entry.isHandwritten;
-        const baseColor = isHW ? HANDWRITTEN_FILL_COLOR : PRINTED_FILL_COLOR;
-
-        // Fill (with transparency)
-        ctx.save();
-        ctx.globalAlpha = BOX_ALPHA;
-        ctx.fillStyle = baseColor;
-        ctx.fillRect(bbox[0], bbox[1], boxWidth, boxHeight);
-        ctx.restore();
-
-        // Border (opaque)
-        ctx.save();
-        ctx.strokeStyle = baseColor;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(bbox[0], bbox[1], boxWidth, boxHeight);
-        ctx.restore();
-
-        // Text rendering logic...
-        const computedDeg = (entry.orientationDeg != null) ? entry.orientationDeg : angleFromPolygon(polygon) || 0;
-        const angleDeg    = FORCE_HORIZONTAL ? 0 : (ORIENTATION_SNAP ? snapAngle0or90(computedDeg) : computedDeg);
-        const angleRad    = angleDeg * Math.PI / 180;
-
-        let effW = boxWidth;
-        let effH = boxHeight;
-        if (Math.abs(Math.round(angleDeg)) === 90) {
-          effW = boxHeight;
-          effH = boxWidth;
-        }
-
-        const text = (entry.displayText || '').trim();
-
-        let fontSize, lines;
-        if (ENABLE_WRAP) {
-          const wrapped = wrapTextToBox(ctx, text, effW, effH, MAX_FONT_SIZE, MIN_FONT_SIZE);
-          fontSize = wrapped.fontSize;
-          lines    = wrapped.lines;
-        } else {
-          fontSize = fitTextToBox(ctx, text, effW, effH, MAX_FONT_SIZE, MIN_FONT_SIZE);
-          lines    = [text];
-        }
-
-        ctx.save();
-        ctx.font        = `${DEFAULT_WEIGHT} ${fontSize}px ${FONT_FAMILY}`;
-        ctx.fillStyle   = TEXT_COLOR;
-        ctx.strokeStyle = TEXT_OUTLINE_COLOR;
-        ctx.lineWidth   = Math.max(1, fontSize / 20);
-        ctx.textBaseline = 'middle';
-        ctx.textAlign    = 'center';
-
-        const centerX = bbox[0] + boxWidth  / 2;
-        const centerY = bbox[1] + boxHeight / 2;
-
-        ctx.translate(centerX, centerY);
-        ctx.rotate(angleRad);
-
-        const lineHeight  = fontSize * WRAP_LINE_HEIGHT_MULT;
-        const totalHeight = lineHeight * (lines.length - 1);
-        lines.forEach((line, i) => {
-          const y = i * lineHeight - totalHeight / 2;
-          if (TEXT_OUTLINE_COLOR !== TEXT_COLOR) {
-            ctx.strokeText(line, 0, y);
-          }
-          ctx.fillText(line, 0, y);
-        });
-
-        ctx.restore();
-
-        logMessage(
-          ` [${idx}] bbox=(${bbox.map(n => n.toFixed(1)).join(', ')}) `
-          + `ori=${angleDeg}° effW=${effW.toFixed(1)} effH=${effH.toFixed(1)} `
-          + `font=${DEFAULT_WEIGHT.toUpperCase()} ${fontSize}px lines=${lines.length} `
-          + `handwritten=${isHW} text="${text.slice(0,120)}${text.length>120?'…':''}"`,
-          context
-        );
-      } else {
-        logMessage(` [${idx}] Skipped: invalid bbox or polygon.`, context);
-      }
-    });
-
-    // Generate PNG buffer
-    const pngBuffer = canvas.toBuffer('image/png');
-    logMessage(`✅ Generated annotated image: ${pngBuffer.length} bytes`, context);
-
-    // Prepare SharePoint upload
-    const baseName  = path.basename(originalFileName, path.extname(originalFileName));
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const annotatedFileName = `${baseName}_ANNOTATED_${timestamp}.png`;
-
-    logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
-
-    // Import SharePoint helpers
-    const { ensureSharePointFolder, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
-
-    await ensureSharePointFolder(folderPath, context);
-
-    // Convert PNG to base64 for upload
-    const base64ImageContent = pngBuffer.toString('base64');
-
-    logMessage(`📤 Uploading annotated image to SharePoint: ${annotatedFileName}`, context);
-    const sharePointResult = await uploadOriginalDocumentToSharePoint(
-      base64ImageContent,
-      annotatedFileName,
-      folderPath,
-      context
-    );
-
-    if (sharePointResult) {
-      logMessage(`✅ Successfully uploaded annotated image to SharePoint: ${annotatedFileName}`, context);
-      return sharePointResult;
-    } else {
-      logMessage(`❌ Failed to upload annotated image to SharePoint`, context);
-      return null;
-    }
-  } catch (error) {
-    handleError(error, 'generateAnnotatedImageToSharePoint', context);
-    return null;
-  }
-}
-
-/**
- * Legacy function for local file generation (kept for backward compatibility)
- * Updated to work with buffer input instead of file path
- */
-async function generateAnnotatedImage(analyseOutput, imageBuffer, originalFileName, context) {
-  if (!Array.isArray(analyseOutput)) {
-    handleError(new Error('Invalid input'), 'generateAnnotatedImage', context);
-    return null;
-  }
-
-  try {
-    // Create temporary file for local processing
-    const tempDir = os.tmpdir();
-    const tempImagePath = path.join(tempDir, `temp_${Date.now()}_${originalFileName}`);
-
-    // Write buffer to temp file
-    fs.writeFileSync(tempImagePath, imageBuffer);
-
-    logMessage(`Loading image from buffer: ${originalFileName}`, context);
-    logMessage(
-      `Render flags: FORCE_HORIZONTAL=${FORCE_HORIZONTAL}, ENABLE_WRAP=${ENABLE_WRAP}, `
-      + `WRAP_MAX_LINES=${WRAP_MAX_LINES === Infinity ? '∞' : WRAP_MAX_LINES}, WRAP_LINE_HEIGHT_MULT=${WRAP_LINE_HEIGHT_MULT}, `
-      + `MAX_FONT_SIZE=${MAX_FONT_SIZE}, FILL_RATIO=${FILL_RATIO}, BOX_ALPHA=${BOX_ALPHA}`,
-      context
-    );
-    logMessage(
-      `Colors: PRINTED=${PRINTED_FILL_COLOR}, HANDWRITTEN=${HANDWRITTEN_FILL_COLOR}, `
-      + `TEXT=${TEXT_COLOR}, OUTLINE=${TEXT_OUTLINE_COLOR}`,
-      context
-    );
-
-    const image  = await loadImage(tempImagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx    = canvas.getContext('2d');
-
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    ctx.textBaseline = 'middle';
-    ctx.textAlign    = 'center';
-
-    logMessage(`Drawing ${analyseOutput.length} merged entries...`, context);
-
-    analyseOutput.forEach((entry, idx) => {
-      const bbox    = entry.bbox;
-      const polygon = entry.polygon;
-
-      if (bbox && bbox.length === 4 && polygon && polygon.length >= 2) {
-        const boxWidth  = bbox[2] - bbox[0];
-        const boxHeight = bbox[3] - bbox[1];
-
-        const isHW = !!entry.isHandwritten;
-        const baseColor = isHW ? HANDWRITTEN_FILL_COLOR : PRINTED_FILL_COLOR;
-
-        // Fill (with transparency)
-        ctx.save();
-        ctx.globalAlpha = BOX_ALPHA;
-        ctx.fillStyle   = baseColor;
-        ctx.fillRect(bbox[0], bbox[1], boxWidth, boxHeight);
-        ctx.restore();
-
-        // Border (opaque)
-        ctx.save();
-        ctx.strokeStyle = baseColor;
-        ctx.lineWidth   = 3;
-        ctx.strokeRect(bbox[0], bbox[1], boxWidth, boxHeight);
-        ctx.restore();
-
-        // Text rendering logic...
-        const computedDeg = (entry.orientationDeg != null) ? entry.orientationDeg : angleFromPolygon(polygon) || 0;
-        const angleDeg    = FORCE_HORIZONTAL ? 0 : (ORIENTATION_SNAP ? snapAngle0or90(computedDeg) : computedDeg);
-        const angleRad    = angleDeg * Math.PI / 180;
-
-        let effW = boxWidth;
-        let effH = boxHeight;
-        if (Math.abs(Math.round(angleDeg)) === 90) {
-          effW = boxHeight;
-          effH = boxWidth;
-        }
-
-        const text = (entry.displayText || '').trim();
-
-        let fontSize, lines;
-        if (ENABLE_WRAP) {
-          const wrapped = wrapTextToBox(ctx, text, effW, effH, MAX_FONT_SIZE, MIN_FONT_SIZE);
-          fontSize = wrapped.fontSize;
-          lines    = wrapped.lines;
-        } else {
-          fontSize = fitTextToBox(ctx, text, effW, effH, MAX_FONT_SIZE, MIN_FONT_SIZE);
-          lines    = [text];
-        }
-
-        ctx.save();
-        ctx.font        = `${DEFAULT_WEIGHT} ${fontSize}px ${FONT_FAMILY}`;
-        ctx.fillStyle   = TEXT_COLOR;
-        ctx.strokeStyle = TEXT_OUTLINE_COLOR;
-        ctx.lineWidth   = Math.max(1, fontSize / 20);
-        ctx.textBaseline= 'middle';
-        ctx.textAlign   = 'center';
-
-        const centerX = bbox[0] + boxWidth  / 2;
-        const centerY = bbox[1] + boxHeight / 2;
-
-        ctx.translate(centerX, centerY);
-        ctx.rotate(angleRad);
-
-        const lineHeight  = fontSize * WRAP_LINE_HEIGHT_MULT;
-        const totalHeight = lineHeight * (lines.length - 1);
-        lines.forEach((line, i) => {
-          const y = i * lineHeight - totalHeight / 2;
-          if (TEXT_OUTLINE_COLOR !== TEXT_COLOR) {
-            ctx.strokeText(line, 0, y);
-          }
-          ctx.fillText(line, 0, y);
-        });
-
-        ctx.restore();
-
-        logMessage(
-          ` [${idx}] bbox=(${bbox.map(n => n.toFixed(1)).join(', ')}) `
-          + `ori=${angleDeg}° effW=${effW.toFixed(1)} effH=${effH.toFixed(1)} `
-          + `font=${DEFAULT_WEIGHT.toUpperCase()} ${fontSize}px lines=${lines.length} `
-          + `handwritten=${isHW} text="${text.slice(0,120)}${text.length>120?'…':''}"`,
-          context
-        );
-      } else {
-        logMessage(` [${idx}] Skipped: invalid bbox or polygon.`, context);
-      }
-    });
-
-    // Generate PNG buffer and write to disk
-    const pngBuffer = canvas.toBuffer('image/png');
-    logMessage(`✅ Generated annotated image: ${pngBuffer.length} bytes`, context);
-
-    const outFile = path.join(
-      tempDir,
-      `${path.basename(originalFileName, path.extname(originalFileName))}_ANNOTATED.png`
-    );
-    fs.writeFileSync(outFile, pngBuffer);
-
-    // Clean up temp input image
-    try { fs.unlinkSync(tempImagePath); } catch (_) {}
-
-    return outFile;
-  } catch (error) {
-    handleError(error, 'generateAnnotatedImage', context);
-    return null;
-  }
-}
-
 /* -----------------------------------------------------------------------------
   Complete processing pipeline for unknown file types
 ----------------------------------------------------------------------------- */
-/**
- * Complete processing pipeline: analyze document, upload to SharePoint (original, JSON, annotated image)
- * @param {Buffer} imageBuffer - Original document as buffer
- * @param {string} mimeType - MIME type of the document
- * @param {string} base64Raw - Original document as base64 string
- * @param {string} originalFileName - Original filename
- * @param {string} companyName - Company name for folder organization
- * @param {Object} context - Azure Functions context
- * @returns {Promise<Object|null>} Processing results or null on error
- */
 async function processUnknownDocument(imageBuffer, mimeType, base64Raw, originalFileName, companyName, context) {
   try {
     logMessage(`🧠 Starting complete document processing pipeline`, context);
@@ -916,11 +406,7 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
         success: false,
         reason: 'no_text_detected',
         textRegions: 0,
-        uploads: {
-          original: false,
-          json: false,
-          annotatedImage: false
-        }
+        uploads: { original: false, json: false, annotatedImage: false }
       };
     }
 
@@ -940,16 +426,18 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
     const baseName = originalFileName.replace(/\.[^/.]+$/, "");
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     
-    // ✅ Add current date in JST (YYYY-MM-DD-HH-MM-SS format)
+    // ✅ Better readable format: YYYY-MM-DD_HH-MM-SS-mmm
     const currentDateUTC = new Date();
-    const currentDateJST = new Date(currentDateUTC.getTime() + (9 * 60 * 60 * 1000)); // Add 9 hours for JST
+    const currentDateJST = new Date(currentDateUTC.getTime() + (9 * 60 * 60 * 1000));
     const dateFolder = [
       currentDateJST.getUTCFullYear(),
       String(currentDateJST.getUTCMonth() + 1).padStart(2, '0'),
-      String(currentDateJST.getUTCDate()).padStart(2, '0'),
+      String(currentDateJST.getUTCDate()).padStart(2, '0')
+    ].join('-') + '_' + [
       String(currentDateJST.getUTCHours()).padStart(2, '0'),
       String(currentDateJST.getUTCMinutes()).padStart(2, '0'),
-      String(currentDateJST.getUTCSeconds()).padStart(2, '0')
+      String(currentDateJST.getUTCSeconds()).padStart(2, '0'),
+      String(currentDateJST.getUTCMilliseconds()).padStart(3, '0')
     ].join('-');
     
     const basePath = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
@@ -960,25 +448,17 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
     const { ensureSharePointFolder, uploadJsonToSharePoint, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
     
     // Ensure folder exists
-    logMessage(`📁 Creating SharePoint folder: ${folderPath}`, context);
     await ensureSharePointFolder(folderPath, context);
 
-    const uploadResults = {
-      original: false,
-      json: false,
-      annotatedImage: false
-    };
+    const uploadResults = { original: false, json: false, annotatedImage: false };
 
-    // Step 2: Upload original document to SharePoint
+    // Step 2: Upload original document
     logMessage(`📤 Uploading original document to SharePoint...`, context);
     const originalDocFileName = `original-${originalFileName}`;
     
     try {
       const originalDocUploadResult = await uploadOriginalDocumentToSharePoint(
-        base64Raw,
-        originalDocFileName,
-        folderPath,
-        context
+        base64Raw, originalDocFileName, folderPath, context
       );
       
       if (originalDocUploadResult) {
@@ -991,15 +471,13 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
       logMessage(`❌ Error uploading original document: ${error.message}`, context);
     }
 
-    // Step 3: Upload JSON analysis to SharePoint
+    // Step 3: Upload JSON analysis
     logMessage(`📤 Uploading analysis JSON to SharePoint...`, context);
     
     const analysisJsonReport = {
       metadata: {
-        originalFileName: originalFileName,
-        processedDate: new Date().toISOString(),
-        companyName: companyName,
-        mimeType: mimeType,
+        originalFileName, processedDate: new Date().toISOString(),
+        companyName, mimeType,
         totalTextRegions: analyseOutput.length,
         handwrittenRegions: analyseOutput.filter(region => region.isHandwritten).length,
         printedRegions: analyseOutput.filter(region => !region.isHandwritten).length,
@@ -1027,10 +505,7 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
     
     try {
       const jsonUploadResult = await uploadJsonToSharePoint(
-        analysisJsonReport,
-        jsonFileName,
-        folderPath,
-        context
+        analysisJsonReport, jsonFileName, folderPath, context
       );
       
       if (jsonUploadResult) {
@@ -1048,12 +523,7 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
     
     try {
       const sharePointResult = await generateAnnotatedImageToSharePoint(
-        analyseOutput,
-        imageBuffer,
-        originalFileName,
-        context,
-        companyName,
-        folderPath
+        analyseOutput, imageBuffer, originalFileName, context, companyName, folderPath
       );
 
       if (sharePointResult) {
@@ -1089,11 +559,7 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
       reason: 'processing_error',
       error: error.message,
       textRegions: 0,
-      uploads: {
-        original: false,
-        json: false,
-        annotatedImage: false
-      }
+      uploads: { original: false, json: false, annotatedImage: false }
     };
   }
 }
@@ -1103,7 +569,7 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
 ----------------------------------------------------------------------------- */
 module.exports = {
   analyseAndExtract,
-  generateAnnotatedImage,
-  generateAnnotatedImageToSharePoint,
-  processUnknownDocument  // ✅ Add the new comprehensive function
+  generateAnnotatedImage,        // ✅ Re-export from generalFormImageAnnotator
+  generateAnnotatedImageToSharePoint, // ✅ Re-export from generalFormImageAnnotator
+  processUnknownDocument
 };
