@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { logMessage, handleError } = require('../utils');
+const { analyzeComment, getLanguageNameInJapanese } = require('../analytics/sentimentAnalysis');
 
 /* -----------------------------------------------------------------------------
   HTML Report Generation with SharePoint Upload
@@ -257,6 +258,8 @@ function generateDataTable(analyseOutput, config) {
             <th>座標 (X,Y,W,H)</th>
             ${config.showOrientation ? '<th>回転角度</th>' : ''}
             ${config.showHandwriting ? '<th>手書き</th>' : ''}
+            ${config.showLanguage ? '<th>検出言語</th>' : ''}
+            ${config.showTranslation ? '<th>日本語翻訳</th>' : ''}
             <th>OCRマッチ</th>
             <th>Layoutテキスト</th>
           </tr>
@@ -278,6 +281,24 @@ function generateDataTable(analyseOutput, config) {
         <td class="coords-cell">${coordinates}</td>
         ${config.showOrientation ? `<td class="orientation-cell">${entry.orientationDeg || 0}°</td>` : ''}
         ${config.showHandwriting ? `<td class="handwriting-cell">${entry.isHandwritten ? '✍️ 手書き' : '🖨️ 印刷'}</td>` : ''}
+        ${config.showLanguage ? `
+          <td class="language-cell">
+            <div class="language-info">
+              <span class="language-name">${getLanguageNameInJapanese(entry.detectedLanguage)}</span>
+              ${entry.languageConfidence > 0 ? `<span class="confidence">(${Math.round(entry.languageConfidence * 100)}%)</span>` : ''}
+            </div>
+          </td>
+        ` : ''}
+        ${config.showTranslation ? `
+          <td class="translation-cell">
+            ${entry.needsTranslation && entry.japaneseTranslation 
+              ? `<div class="translation-text">${escapeHtml(entry.japaneseTranslation)}</div>`
+              : entry.detectedLanguage === 'ja'
+                ? '<em class="no-translation">翻訳不要</em>'
+                : '<em class="no-translation">翻訳なし</em>'
+            }
+          </td>
+        ` : ''}
         <td class="ocr-cell">
           ${(entry.matchedOCR || []).length > 0 
             ? (entry.matchedOCR || []).map(text => `<div class="ocr-match">${escapeHtml(text)}</div>`).join('')
@@ -630,6 +651,100 @@ function generateErrorHtml(originalFileName, error) {
     </div>
 </body>
 </html>`;
+}
+
+/**
+ * Enhanced function to detect language and translate text regions using existing sentimentAnalysis logic
+ */
+async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
+  logMessage(`🌐 Detecting languages and translating text regions...`, context);
+  
+  const enhancedRegions = [];
+  
+  for (let i = 0; i < analyseOutput.length; i++) {
+    const entry = analyseOutput[i];
+    const text = entry.displayText || '';
+    
+    if (!text.trim()) {
+      // Empty text - skip language detection
+      enhancedRegions.push({
+        ...entry,
+        detectedLanguage: 'N/A',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      });
+      continue;
+    }
+
+    try {
+      // ✅ Use existing analyzeComment function which already does language detection + translation
+      const analysisResult = await analyzeComment(text);
+      
+      enhancedRegions.push({
+        ...entry,
+        detectedLanguage: analysisResult.detectedLanguage || 'unknown',
+        languageConfidence: analysisResult.confidenceScores ? 
+          Math.max(
+            analysisResult.confidenceScores.positive || 0,
+            analysisResult.confidenceScores.neutral || 0,
+            analysisResult.confidenceScores.negative || 0
+          ) : 0,
+        japaneseTranslation: analysisResult.japaneseTranslation || '',
+        needsTranslation: analysisResult.detectedLanguage !== 'ja' && analysisResult.japaneseTranslation,
+        // ✅ Also store sentiment data for potential future use
+        sentiment: analysisResult.sentiment,
+        sentimentScores: analysisResult.confidenceScores
+      });
+      
+    } catch (error) {
+      logMessage(`❌ Language detection failed for region ${i}: ${error.message}`, context);
+      enhancedRegions.push({
+        ...entry,
+        detectedLanguage: 'Error',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      });
+    }
+  }
+  
+  logMessage(`✅ Language detection complete for ${enhancedRegions.length} regions`, context);
+  return enhancedRegions;
+}
+
+/**
+ * ✅ Generate language detection summary (updated to use existing function)
+ */
+function generateLanguageSummary(analyseOutput) {
+  const languageStats = {};
+  const translationNeeded = analyseOutput.filter(entry => entry.needsTranslation).length;
+  
+  analyseOutput.forEach(entry => {
+    const lang = entry.detectedLanguage || 'Unknown';
+    languageStats[lang] = (languageStats[lang] || 0) + 1;
+  });
+
+  const sortedLanguages = Object.entries(languageStats)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 5); // Top 5 languages
+
+  return `
+    <div class="language-summary-section">
+      <h2>🌐 言語検出サマリー</h2>
+      <div class="language-grid">
+        ${sortedLanguages.map(([lang, count]) => `
+          <div class="language-item">
+            <div class="language-name">${getLanguageNameInJapanese(lang)}</div>
+            <div class="language-count">${count}件</div>
+          </div>
+        `).join('')}
+        <div class="translation-item">
+          <div class="translation-label">翻訳対象</div>
+          <div class="translation-count">${translationNeeded}件</div>
+        </div>
+      </div>
+    </div>`;
 }
 
 /* -----------------------------------------------------------------------------
