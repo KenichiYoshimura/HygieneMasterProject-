@@ -17,10 +17,14 @@ const supportedLanguages = new Set([
     'sv', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'vi'
 ]);
 
-// Unified function for sentiment analysis
-async function analyzeComment(text) {
-    console.log('🔍 Starting sentiment analysis for text:', text);
-    console.log('🔍 Environment check:');
+/**
+ * Detect language and translate to Japanese (without sentiment analysis)
+ * @param {string} text - Text to analyze
+ * @returns {Promise<Object>} Language detection and translation result
+ */
+async function detectLanguageAndTranslate(text) {
+    console.log('🌐 Starting language detection and translation for text:', text);
+    console.log('🌐 Environment check:');
     console.log('  - languageKey exists:', !!languageKey);
     console.log('  - languageEndpoint:', languageEndpoint);
     console.log('  - translatorKey exists:', !!translatorKey);
@@ -30,14 +34,12 @@ async function analyzeComment(text) {
         const error = 'Azure Language Service credentials not configured';
         console.error('❌', error);
         return {
-            originalComment: text,
+            originalText: text,
             error: error,
             detectedLanguage: 'unknown',
+            languageConfidence: 0,
             japaneseTranslation: null,
-            analysisLanguage: 'unknown',
-            sentiment: 'unknown',
-            confidenceScores: { positive: 0, neutral: 0, negative: 0 },
-            wasTranslated: false
+            needsTranslation: false
         };
     }
 
@@ -79,13 +81,16 @@ async function analyzeComment(text) {
         }
         
         const detectedLanguage = languageDoc.detectedLanguage.iso6391Name;
-        console.log('🌐 Detected language:', detectedLanguage);
+        const languageConfidence = languageDoc.detectedLanguage.confidenceScore || 0;
+        console.log('🌐 Detected language:', detectedLanguage, 'with confidence:', languageConfidence);
 
-        // Step 2: Always translate to Japanese (unless already Japanese)
+        // Step 2: Translate to Japanese if needed
         let japaneseTranslation = null;
+        let needsTranslation = false;
         
         if (detectedLanguage !== 'ja') {
-            console.log('🔄 Translating to Japanese for report display...');
+            needsTranslation = true;
+            console.log('🔄 Translating to Japanese...');
             
             if (!translatorKey || !translatorEndpoint) {
                 console.warn('⚠️ Translation credentials not configured - skipping translation');
@@ -120,8 +125,72 @@ async function analyzeComment(text) {
             }
         } else {
             console.log('✅ Text is already in Japanese - no translation needed');
-            japaneseTranslation = null; // No translation needed for Japanese text
         }
+
+        // Return language detection and translation result
+        const result = {
+            originalText: text,
+            detectedLanguage,
+            languageConfidence,
+            japaneseTranslation,
+            needsTranslation
+        };
+
+        console.log('✅ Language detection and translation complete:', JSON.stringify(result, null, 2));
+        return result;
+
+    } catch (error) {
+        console.error('❌ Language detection and translation failed:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        if (error.response) {
+            console.error('❌ Response status:', error.response.status);
+            console.error('❌ Response headers:', JSON.stringify(error.response.headers, null, 2));
+            console.error('❌ Response data:', JSON.stringify(error.response.data, null, 2));
+        }
+        
+        // Return error object
+        return {
+            originalText: text,
+            error: error.message,
+            detectedLanguage: 'unknown',
+            languageConfidence: 0,
+            japaneseTranslation: null,
+            needsTranslation: false
+        };
+    }
+}
+
+/**
+ * Unified function for sentiment analysis (refactored to use detectLanguageAndTranslate)
+ */
+async function analyzeComment(text) {
+    console.log('🔍 Starting sentiment analysis for text:', text);
+
+    if (!languageKey || !languageEndpoint) {
+        const error = 'Azure Language Service credentials not configured';
+        console.error('❌', error);
+        return {
+            originalComment: text,
+            error: error,
+            detectedLanguage: 'unknown',
+            japaneseTranslation: null,
+            analysisLanguage: 'unknown',
+            sentiment: 'unknown',
+            confidenceScores: { positive: 0, neutral: 0, negative: 0 },
+            wasTranslated: false
+        };
+    }
+
+    try {
+        // ✅ Step 1 & 2: Use the new function for language detection and translation
+        console.log('🌐 Step 1-2: Detecting language and translating...');
+        const languageResult = await detectLanguageAndTranslate(text);
+        
+        if (languageResult.error) {
+            throw new Error(languageResult.error);
+        }
+
+        const { detectedLanguage, japaneseTranslation } = languageResult;
 
         // Step 3: Determine which text to use for sentiment analysis
         const isLanguageSupported = supportedLanguages.has(detectedLanguage);
@@ -167,14 +236,13 @@ async function analyzeComment(text) {
             throw new Error(`Sentiment analysis error: ${JSON.stringify(sentimentDoc.error)}`);
         }
 
-        // Extract confidence scores with detailed logging
+        // Extract confidence scores (existing logic)
         console.log('😊 Extracting confidence scores...');
         console.log('😊 sentimentDoc.confidenceScores:', JSON.stringify(sentimentDoc.confidenceScores, null, 2));
         
         let confidenceScores = {};
         
         if (sentimentDoc.confidenceScores) {
-            // Try different possible property names
             if (typeof sentimentDoc.confidenceScores === 'object') {
                 console.log('😊 confidenceScores is an object');
                 console.log('😊 Available properties:', Object.keys(sentimentDoc.confidenceScores));
@@ -191,7 +259,6 @@ async function analyzeComment(text) {
         } else {
             console.log('⚠️ No confidenceScores property found, checking alternatives...');
             
-            // Check for alternative property names
             const altProps = ['confidence_scores', 'scores', 'documentConfidenceScores'];
             let found = false;
             
@@ -228,11 +295,11 @@ async function analyzeComment(text) {
         const result = {
             originalComment: text,
             detectedLanguage,
-            japaneseTranslation,                    // Always try to provide translation (null if Japanese or translation failed)
+            japaneseTranslation,
             analysisLanguage: sentimentLanguage,
             sentiment: sentimentDoc.sentiment,
             confidenceScores: confidenceScores,
-            wasTranslated: !isLanguageSupported     // True if sentiment analysis used translated text
+            wasTranslated: !isLanguageSupported
         };
 
         console.log('✅ Analysis complete:', JSON.stringify(result, null, 2));
@@ -418,8 +485,9 @@ function formatInlineConfidenceDetails(confidenceScores) {
 
 module.exports = { 
     analyzeComment, 
+    detectLanguageAndTranslate,       // ✅ Export the new function
     supportedLanguages, 
     getLanguageNameInJapanese, 
-    formatConfidenceDetails,          // Keep for backward compatibility
-    formatInlineConfidenceDetails     // New simple inline version
+    formatConfidenceDetails,
+    formatInlineConfidenceDetails
 };

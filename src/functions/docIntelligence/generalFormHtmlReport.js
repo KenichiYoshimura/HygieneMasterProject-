@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { logMessage, handleError } = require('../utils');
-const { analyzeComment, getLanguageNameInJapanese } = require('../analytics/sentimentAnalysis');
+const { detectLanguageAndTranslate, getLanguageNameInJapanese } = require('../analytics/sentimentAnalysis');
 
 /* -----------------------------------------------------------------------------
   HTML Report Generation with SharePoint Upload
@@ -654,7 +654,7 @@ function generateErrorHtml(originalFileName, error) {
 }
 
 /**
- * Enhanced function to detect language and translate text regions using existing sentimentAnalysis logic
+ * Enhanced function using the new lightweight language detection
  */
 async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
   logMessage(`🌐 Detecting languages and translating text regions...`, context);
@@ -666,7 +666,6 @@ async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
     const text = entry.displayText || '';
     
     if (!text.trim()) {
-      // Empty text - skip language detection
       enhancedRegions.push({
         ...entry,
         detectedLanguage: 'N/A',
@@ -678,23 +677,19 @@ async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
     }
 
     try {
-      // ✅ Use existing analyzeComment function which already does language detection + translation
-      const analysisResult = await analyzeComment(text);
+      // ✅ Use the new lightweight function (no sentiment analysis)
+      const languageResult = await detectLanguageAndTranslate(text);
+      
+      if (languageResult.error) {
+        throw new Error(languageResult.error);
+      }
       
       enhancedRegions.push({
         ...entry,
-        detectedLanguage: analysisResult.detectedLanguage || 'unknown',
-        languageConfidence: analysisResult.confidenceScores ? 
-          Math.max(
-            analysisResult.confidenceScores.positive || 0,
-            analysisResult.confidenceScores.neutral || 0,
-            analysisResult.confidenceScores.negative || 0
-          ) : 0,
-        japaneseTranslation: analysisResult.japaneseTranslation || '',
-        needsTranslation: analysisResult.detectedLanguage !== 'ja' && analysisResult.japaneseTranslation,
-        // ✅ Also store sentiment data for potential future use
-        sentiment: analysisResult.sentiment,
-        sentimentScores: analysisResult.confidenceScores
+        detectedLanguage: languageResult.detectedLanguage,
+        languageConfidence: languageResult.languageConfidence,
+        japaneseTranslation: languageResult.japaneseTranslation || '',
+        needsTranslation: languageResult.needsTranslation
       });
       
     } catch (error) {
