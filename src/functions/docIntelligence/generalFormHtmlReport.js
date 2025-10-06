@@ -9,14 +9,14 @@ const { detectLanguageAndTranslate, getLanguageNameInJapanese } = require('../an
 ----------------------------------------------------------------------------- */
 
 /**
- * Generate human-readable HTML report with spatial layout preservation
+ * Generate human-readable HTML report with spatial layout preservation and language detection
  * @param {Array} analyseOutput - Text regions with bbox, text, etc.
  * @param {string} originalFileName - Original filename
  * @param {Object} context - Azure Functions context
  * @param {Object} options - Configuration options
  * @returns {string} HTML content
  */
-function produceHtml(analyseOutput, originalFileName, context, options = {}) {
+async function produceHtml(analyseOutput, originalFileName, context, options = {}) {
   if (!Array.isArray(analyseOutput) || analyseOutput.length === 0) {
     return generateEmptyHtml(originalFileName);
   }
@@ -24,19 +24,24 @@ function produceHtml(analyseOutput, originalFileName, context, options = {}) {
   try {
     logMessage(`📄 Generating HTML report for ${analyseOutput.length} text regions...`, context);
 
-    // Configuration
+    // ✅ Enhance with language detection and translation FIRST
+    const enhancedRegions = await enhanceTextRegionsWithLanguage(analyseOutput, context);
+
+    // Configuration - ✅ Enable language features by default
     const config = {
-      scaleFactor: options.scaleFactor || 0.3,  // Scale down coordinates for display
+      scaleFactor: options.scaleFactor || 0.3,
       cellPadding: options.cellPadding || 8,
       showBoundingBoxes: options.showBoundingBoxes !== false,
       showOrientation: options.showOrientation !== false,
       showHandwriting: options.showHandwriting !== false,
+      showLanguage: options.showLanguage !== false,        // ✅ Enable by default
+      showTranslation: options.showTranslation !== false,  // ✅ Enable by default
       groupByRows: options.groupByRows !== false,
       ...options
     };
 
-    // Find document boundaries
-    const allBboxes = analyseOutput.map(entry => entry.bbox).filter(Boolean);
+    // Find document boundaries using enhanced regions
+    const allBboxes = enhancedRegions.map(entry => entry.bbox).filter(Boolean);
     const docBounds = {
       minX: Math.min(...allBboxes.map(b => b[0])),
       minY: Math.min(...allBboxes.map(b => b[1])),
@@ -51,8 +56,8 @@ function produceHtml(analyseOutput, originalFileName, context, options = {}) {
 
     // Group text regions by approximate rows (if enabled)
     const textRegions = config.groupByRows 
-      ? groupTextIntoRows(analyseOutput, docBounds)
-      : analyseOutput.map(entry => ({ ...entry, rowIndex: 0 }));
+      ? groupTextIntoRows(enhancedRegions, docBounds)
+      : enhancedRegions.map(entry => ({ ...entry, rowIndex: 0 }));
 
     // Generate HTML
     const html = `
@@ -68,10 +73,11 @@ function produceHtml(analyseOutput, originalFileName, context, options = {}) {
 </head>
 <body>
     <div class="container">
-        ${generateHeader(originalFileName, analyseOutput, docBounds)}
+        ${generateHeader(originalFileName, enhancedRegions, docBounds)}
+        ${generateLanguageSummary(enhancedRegions)}
         ${generateSpatialLayout(textRegions, docBounds, config)}
-        ${generateDataTable(analyseOutput, config)}
-        ${generateSummary(analyseOutput)}
+        ${generateDataTable(enhancedRegions, config)}
+        ${generateSummary(enhancedRegions)}
     </div>
 </body>
 </html>`;
@@ -393,7 +399,7 @@ function generateCSS(config) {
     }
     
     .container {
-      max-width: 1400px;
+      max-width: 1600px;  /* ✅ Wider for language columns */
       margin: 0 auto;
       background: white;
       border-radius: 8px;
@@ -417,6 +423,54 @@ function generateCSS(config) {
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 10px;
       font-size: 14px;
+    }
+    
+    /* ✅ Language summary section */
+    .language-summary-section {
+      padding: 20px;
+      border-bottom: 1px solid #eee;
+      background: #f8f9fa;
+    }
+    
+    .language-summary-section h2 {
+      margin: 0 0 15px 0;
+      color: #333;
+      border-bottom: 2px solid #FF9800;
+      padding-bottom: 10px;
+    }
+    
+    .language-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+    }
+    
+    .language-item, .translation-item {
+      text-align: center;
+      padding: 10px;
+      background: white;
+      border-radius: 6px;
+      border-left: 4px solid #FF9800;
+    }
+    
+    .language-name, .translation-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .language-count, .translation-count {
+      font-size: 18px;
+      font-weight: bold;
+      color: #FF9800;
+    }
+    
+    .translation-item {
+      border-left-color: #4CAF50;
+    }
+    
+    .translation-count {
+      color: #4CAF50;
     }
     
     .spatial-section, .table-section, .summary-section {
@@ -489,7 +543,7 @@ function generateCSS(config) {
     .data-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 13px;  /* ✅ Smaller for more columns */
     }
     
     .data-table th, .data-table td {
@@ -520,14 +574,14 @@ function generateCSS(config) {
     }
     
     .index-cell {
-      width: 50px;
+      width: 40px;
       text-align: center;
       font-weight: bold;
     }
     
     .text-cell {
-      min-width: 200px;
-      max-width: 300px;
+      min-width: 150px;
+      max-width: 200px;
     }
     
     .display-text {
@@ -538,17 +592,63 @@ function generateCSS(config) {
     
     .coords-cell {
       font-family: monospace;
-      font-size: 12px;
+      font-size: 11px;
       color: #666;
+      min-width: 120px;
     }
     
     .orientation-cell {
       text-align: center;
       font-family: monospace;
+      width: 60px;
     }
     
     .handwriting-cell {
       text-align: center;
+      width: 80px;
+    }
+    
+    /* ✅ Language and translation columns */
+    .language-cell {
+      min-width: 100px;
+      text-align: center;
+    }
+    
+    .language-info {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    
+    .language-name {
+      font-weight: bold;
+      color: #FF9800;
+    }
+    
+    .confidence {
+      font-size: 11px;
+      color: #666;
+    }
+    
+    .translation-cell {
+      min-width: 150px;
+      max-width: 200px;
+    }
+    
+    .translation-text {
+      background: #e8f5e8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border-left: 3px solid #4CAF50;
+      font-size: 12px;
+      word-break: break-all;
+    }
+    
+    .no-translation {
+      color: #999;
+      font-style: italic;
+      font-size: 12px;
     }
     
     .ocr-match, .layout-text {
@@ -592,8 +692,10 @@ function generateCSS(config) {
     @media (max-width: 768px) {
       .container { margin: 10px; }
       .header-info { grid-template-columns: 1fr; }
-      .data-table { font-size: 12px; }
-      .data-table th, .data-table td { padding: 4px; }
+      .data-table { font-size: 11px; }
+      .data-table th, .data-table td { padding: 3px; }
+      .language-grid { grid-template-columns: 1fr 1fr; }
+      .text-cell, .translation-cell { min-width: 120px; max-width: 150px; }
     }`;
 }
 
