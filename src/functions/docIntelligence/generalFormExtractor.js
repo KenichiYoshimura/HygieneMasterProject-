@@ -891,11 +891,220 @@ async function generateAnnotatedImage(analyseOutput, imageBuffer, originalFileNa
   }
 }
 
-/* ---------------------------------------
-   Exports (CommonJS)
---------------------------------------- */
+/* -----------------------------------------------------------------------------
+  Complete processing pipeline for unknown file types
+----------------------------------------------------------------------------- */
+/**
+ * Complete processing pipeline: analyze document, upload to SharePoint (original, JSON, annotated image)
+ * @param {Buffer} imageBuffer - Original document as buffer
+ * @param {string} mimeType - MIME type of the document
+ * @param {string} base64Raw - Original document as base64 string
+ * @param {string} originalFileName - Original filename
+ * @param {string} companyName - Company name for folder organization
+ * @param {Object} context - Azure Functions context
+ * @returns {Promise<Object|null>} Processing results or null on error
+ */
+async function processUnknownDocument(imageBuffer, mimeType, base64Raw, originalFileName, companyName, context) {
+  try {
+    logMessage(`🧠 Starting complete document processing pipeline`, context);
+    logMessage(`📄 File: ${originalFileName}, Company: ${companyName}, MIME: ${mimeType}`, context);
+
+    // Step 1: Extract and analyze the document
+    logMessage(`📖 Starting document analysis...`, context);
+    const analyseOutput = await analyseAndExtract(imageBuffer, mimeType, context);
+
+    if (!analyseOutput || analyseOutput.length === 0) {
+      logMessage(`❌ No text regions detected in the document`, context);
+      return {
+        success: false,
+        reason: 'no_text_detected',
+        textRegions: 0,
+        uploads: {
+          original: false,
+          json: false,
+          annotatedImage: false
+        }
+      };
+    }
+
+    logMessage(`✅ Analysis complete! Found ${analyseOutput.length} text regions`, context);
+    
+    // Log sample extracted text for debugging
+    if (analyseOutput.length > 0) {
+      logMessage(`📝 Sample extracted text regions:`, context);
+      analyseOutput.slice(0, 3).forEach((region, idx) => {
+        const text = region.displayText || '';
+        const handwritten = region.isHandwritten ? '✍️' : '🖨️';
+        logMessage(`  [${idx}] ${handwritten} "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`, context);
+      });
+    }
+
+    // Prepare SharePoint variables
+    const baseName = originalFileName.replace(/\.[^/.]+$/, "");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // ✅ Add current date in YYYY-MM-DD-HH-MM-SS format
+    const currentDate = new Date();
+    const dateFolder = [
+      currentDate.getFullYear(),
+      String(currentDate.getMonth() + 1).padStart(2, '0'),
+      String(currentDate.getDate()).padStart(2, '0'),
+      String(currentDate.getHours()).padStart(2, '0'),
+      String(currentDate.getMinutes()).padStart(2, '0'),
+      String(currentDate.getSeconds()).padStart(2, '0')
+    ].join('-');
+    
+    const basePath = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
+    const folderPath = `${basePath}/${companyName}/${dateFolder}`;
+    logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
+
+    // Import SharePoint functions
+    const { ensureSharePointFolder, uploadJsonToSharePoint, uploadOriginalDocumentToSharePoint } = require('../sharepoint/sendToSharePoint');
+    
+    // Ensure folder exists
+    logMessage(`📁 Creating SharePoint folder: ${folderPath}`, context);
+    await ensureSharePointFolder(folderPath, context);
+
+    const uploadResults = {
+      original: false,
+      json: false,
+      annotatedImage: false
+    };
+
+    // Step 2: Upload original document to SharePoint
+    logMessage(`📤 Uploading original document to SharePoint...`, context);
+    const originalDocFileName = `original-${originalFileName}`;
+    
+    try {
+      const originalDocUploadResult = await uploadOriginalDocumentToSharePoint(
+        base64Raw,
+        originalDocFileName,
+        folderPath,
+        context
+      );
+      
+      if (originalDocUploadResult) {
+        logMessage(`✅ Successfully uploaded original document: ${originalDocFileName}`, context);
+        uploadResults.original = true;
+      } else {
+        logMessage(`⚠️ Failed to upload original document, but continuing...`, context);
+      }
+    } catch (error) {
+      logMessage(`❌ Error uploading original document: ${error.message}`, context);
+    }
+
+    // Step 3: Upload JSON analysis to SharePoint
+    logMessage(`📤 Uploading analysis JSON to SharePoint...`, context);
+    
+    const analysisJsonReport = {
+      metadata: {
+        originalFileName: originalFileName,
+        processedDate: new Date().toISOString(),
+        companyName: companyName,
+        mimeType: mimeType,
+        totalTextRegions: analyseOutput.length,
+        handwrittenRegions: analyseOutput.filter(region => region.isHandwritten).length,
+        printedRegions: analyseOutput.filter(region => !region.isHandwritten).length,
+        documentType: 'unknown_general_extraction'
+      },
+      extractedData: {
+        textRegions: analyseOutput,
+        extractionMethod: 'Azure Document Intelligence (Layout + Read)',
+        ocrPriority: true,
+        tableDetection: analyseOutput.some(region => region.bbox),
+        handwritingDetection: analyseOutput.some(region => region.isHandwritten)
+      },
+      summary: {
+        extractedTextSample: analyseOutput.slice(0, 5).map((region, idx) => ({
+          regionIndex: idx,
+          text: region.displayText?.slice(0, 100) + (region.displayText?.length > 100 ? '...' : ''),
+          isHandwritten: region.isHandwritten,
+          boundingBox: region.bbox,
+          orientation: region.orientationDeg
+        }))
+      }
+    };
+    
+    const jsonFileName = `一般抽出データ-${baseName}-${timestamp}.json`;
+    
+    try {
+      const jsonUploadResult = await uploadJsonToSharePoint(
+        analysisJsonReport,
+        jsonFileName,
+        folderPath,
+        context
+      );
+      
+      if (jsonUploadResult) {
+        logMessage(`✅ Successfully uploaded analysis JSON: ${jsonFileName}`, context);
+        uploadResults.json = true;
+      } else {
+        logMessage(`⚠️ Failed to upload analysis JSON, but continuing...`, context);
+      }
+    } catch (error) {
+      logMessage(`❌ Error uploading analysis JSON: ${error.message}`, context);
+    }
+
+    // Step 4: Generate and upload annotated image
+    logMessage(`🖼️ Generating and uploading annotated image to SharePoint...`, context);
+    
+    try {
+      const sharePointResult = await generateAnnotatedImageToSharePoint(
+        analyseOutput,
+        imageBuffer,
+        originalFileName,
+        context,
+        companyName
+      );
+
+      if (sharePointResult) {
+        logMessage(`✅ Successfully uploaded annotated image to SharePoint`, context);
+        uploadResults.annotatedImage = true;
+      } else {
+        logMessage(`⚠️ Failed to upload annotated image`, context);
+      }
+    } catch (error) {
+      logMessage(`❌ Error uploading annotated image: ${error.message}`, context);
+    }
+
+    // Return comprehensive results
+    const successfulUploads = Object.values(uploadResults).filter(Boolean).length;
+    const totalUploads = Object.keys(uploadResults).length;
+    
+    logMessage(`📊 Processing complete! Text regions: ${analyseOutput.length}, Uploads: ${successfulUploads}/${totalUploads}`, context);
+    
+    return {
+      success: true,
+      textRegions: analyseOutput.length,
+      handwrittenRegions: analyseOutput.filter(region => region.isHandwritten).length,
+      printedRegions: analyseOutput.filter(region => !region.isHandwritten).length,
+      uploads: uploadResults,
+      sharePointFolder: folderPath,
+      analysisData: analyseOutput
+    };
+
+  } catch (error) {
+    handleError(error, 'processUnknownDocument', context);
+    return {
+      success: false,
+      reason: 'processing_error',
+      error: error.message,
+      textRegions: 0,
+      uploads: {
+        original: false,
+        json: false,
+        annotatedImage: false
+      }
+    };
+  }
+}
+
+/* -----------------------------------------------------------------------------
+  Exports (CommonJS)
+----------------------------------------------------------------------------- */
 module.exports = {
   analyseAndExtract,
   generateAnnotatedImage,
-  generateAnnotatedImageToSharePoint
+  generateAnnotatedImageToSharePoint,
+  processUnknownDocument  // ✅ Add the new comprehensive function
 };

@@ -15,6 +15,7 @@ const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_F
 const { prepareGeneralManagementReport } = require('./sharepoint/generalManagementReport');
 const { prepareImportantManagementReport } = require('./sharepoint/importantManagementReport');
 const { analyseAndExtract, generateAnnotatedImageToSharePoint } = require('./docIntelligence/generalFormExtractor');
+const { processUnknownDocument } = require('./docIntelligence/generalFormExtractor');
 
 const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.heic'];
 
@@ -213,8 +214,8 @@ async function processExtractedData(context, {
 }
 
 /**  
- * Function to extract data from any document to demonstrate the capability of AI
-*/
+ * Simplified function to extract data from any document using the comprehensive pipeline
+ */
 async function processUnknownFileType(context, {
   title,
   base64Raw,
@@ -234,122 +235,48 @@ async function processUnknownFileType(context, {
                     fileExtension === 'heic' ? 'image/heif' : 
                     `image/${fileExtension}`;
 
-    logMessage(`🔍 Processing with MIME type: ${mimeType}`, context);
+    // Extract original filename from blob name
+    const originalFileName = blobName.split(')')[1] || `unknown_${Date.now()}.${fileExtension}`;
 
-    // Step 1: Extract and analyze the document using general form extractor
-    logMessage(`📖 Starting document analysis...`, context);
-    const analyseOutput = await analyseAndExtract(imageBuffer, mimeType, context);
+    // ✅ SIMPLIFIED: Use the comprehensive processing function
+    const processingResult = await processUnknownDocument(
+      imageBuffer,
+      mimeType,
+      base64Raw,
+      originalFileName,
+      companyName,
+      context
+    );
 
-    if (!analyseOutput || analyseOutput.length === 0) {
-      logMessage(`❌ No text regions detected in the document`, context);
+    if (!processingResult.success) {
+      logMessage(`❌ Processing failed: ${processingResult.reason}`, context);
       
-      // Move to processed folder even if no text found
+      // Move to appropriate folder based on failure reason
+      const targetSubfolder = processingResult.reason === 'no_text_detected' 
+        ? `${companyName}/no-text-detected`
+        : `${companyName}/extraction-errors`;
+      
       await moveBlob(context, blobName, {
         connectionString: process.env['hygienemasterstorage_STORAGE'],
         sourceContainerName: 'incoming-emails',
         targetContainerName: 'processed-attachments',
-        targetSubfolder: `${companyName}/no-text-detected`
+        targetSubfolder
       });
       
+      logMessage(`📦 Moved file to ${targetSubfolder}`, context);
       return;
     }
 
-    logMessage(`✅ Analysis complete! Found ${analyseOutput.length} text regions`, context);
+    // Success! Log results and move to processed folder
+    const { textRegions, handwrittenRegions, printedRegions, uploads } = processingResult;
+    const successfulUploads = Object.values(uploads).filter(Boolean).length;
     
-    // Log sample extracted text for debugging
-    if (analyseOutput.length > 0) {
-      logMessage(`📝 Sample extracted text regions:`, context);
-      analyseOutput.slice(0, 3).forEach((region, idx) => {
-        const text = region.displayText || '';
-        const handwritten = region.isHandwritten ? '✍️' : '🖨️';
-        logMessage(`  [${idx}] ${handwritten} "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`, context);
-      });
-    }
+    logMessage(`✅ Processing successful!`, context);
+    logMessage(`📊 Text regions: ${textRegions} (${handwrittenRegions} handwritten, ${printedRegions} printed)`, context);
+    logMessage(`📤 SharePoint uploads: ${successfulUploads}/3 successful`, context);
+    logMessage(`📁 SharePoint folder: ${processingResult.sharePointFolder}`, context);
 
-    // Step 2: Upload JSON structure to SharePoint
-    logMessage(`📤 Uploading analysis JSON to SharePoint...`, context);
-    
-    const originalFileName = blobName.split(')')[1] || `unknown_${Date.now()}.${fileExtension}`;
-    const baseName = originalFileName.replace(/\.[^/.]+$/, "");
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    
-    // Create SharePoint folder path (same as annotated image)
-    const basePath = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
-    const folderPath = `${basePath}/${companyName}`;
-    
-    // Import SharePoint functions
-    const { ensureSharePointFolder, uploadJsonToSharePoint } = require('./sharepoint/sendToSharePoint');
-    
-    // Ensure folder exists
-    await ensureSharePointFolder(folderPath, context);
-    
-    // Prepare JSON report with metadata
-    const analysisJsonReport = {
-      metadata: {
-        originalFileName: originalFileName,
-        processedDate: new Date().toISOString(),
-        companyName: companyName,
-        fileExtension: fileExtension,
-        mimeType: mimeType,
-        totalTextRegions: analyseOutput.length,
-        handwrittenRegions: analyseOutput.filter(region => region.isHandwritten).length,
-        printedRegions: analyseOutput.filter(region => !region.isHandwritten).length,
-        documentType: 'unknown_general_extraction'
-      },
-      extractedData: {
-        textRegions: analyseOutput,
-        extractionMethod: 'Azure Document Intelligence (Layout + Read)',
-        ocrPriority: true,
-        tableDetection: analyseOutput.some(region => region.bbox), // Check if any regions detected
-        handwritingDetection: analyseOutput.some(region => region.isHandwritten)
-      },
-      summary: {
-        extractedTextSample: analyseOutput.slice(0, 5).map((region, idx) => ({
-          regionIndex: idx,
-          text: region.displayText?.slice(0, 100) + (region.displayText?.length > 100 ? '...' : ''),
-          isHandwritten: region.isHandwritten,
-          boundingBox: region.bbox,
-          orientation: region.orientationDeg
-        }))
-      }
-    };
-    
-    const jsonFileName = `一般抽出データ-${baseName}-${timestamp}.json`;
-    
-    const jsonUploadResult = await uploadJsonToSharePoint(
-      analysisJsonReport,
-      jsonFileName,
-      folderPath,
-      context
-    );
-    
-    if (jsonUploadResult) {
-      logMessage(`✅ Successfully uploaded analysis JSON to SharePoint: ${jsonFileName}`, context);
-    } else {
-      logMessage(`⚠️ Failed to upload analysis JSON to SharePoint, but continuing...`, context);
-    }
-
-    // Step 3: Generate and upload annotated image to SharePoint
-    logMessage(`🖼️ Generating annotated image for SharePoint upload...`, context);
-    
-    const sharePointResult = await generateAnnotatedImageToSharePoint(
-      analyseOutput,           // Analyzed text regions
-      imageBuffer,             // Original image buffer
-      originalFileName,        // Original filename for naming
-      context,                 // Azure Functions context
-      companyName             // Company name for folder organization
-    );
-
-    if (sharePointResult) {
-      logMessage(`✅ Successfully uploaded annotated image to SharePoint`, context);
-      logMessage(`🔗 SharePoint result: ${JSON.stringify(sharePointResult)}`, context);
-    } else {
-      logMessage(`⚠️ Failed to upload annotated image to SharePoint, but continuing...`, context);
-    }
-
-    // Step 4: Move original file to processed folder
-    logMessage(`📦 Moving original file to processed-attachments/${companyName}/general-extraction`, context);
-
+    // Move original file to processed folder
     await moveBlob(context, blobName, {
       connectionString: process.env['hygienemasterstorage_STORAGE'],
       sourceContainerName: 'incoming-emails',
@@ -357,8 +284,7 @@ async function processUnknownFileType(context, {
       targetSubfolder: `${companyName}/general-extraction`
     });
 
-    logMessage(`✅ Successfully processed unknown file type: ${blobName}`, context);
-    logMessage(`📊 Summary: Found ${analyseOutput.length} text regions, uploaded annotated image to SharePoint`, context);
+    logMessage(`📦 Successfully moved file to processed-attachments/${companyName}/general-extraction`, context);
 
   } catch (error) {
     logMessage(`❌ Error during general form extraction: ${error.message}`, context);
