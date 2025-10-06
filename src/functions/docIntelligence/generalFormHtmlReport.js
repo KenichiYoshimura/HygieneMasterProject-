@@ -79,6 +79,50 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
         ${generateDataTable(enhancedRegions, config)}
         ${generateSummary(enhancedRegions)}
     </div>
+    
+    <script>
+        // ✅ JavaScript for click-to-scroll functionality
+        function scrollToTableRow(index) {
+            // Remove previous highlights
+            const previousHighlighted = document.querySelector('.data-table tr.highlighted');
+            if (previousHighlighted) {
+                previousHighlighted.classList.remove('highlighted');
+            }
+            
+            // Find the target row (index + 1 because first row is header)
+            const targetRow = document.querySelector('.data-table tbody tr[data-index="' + index + '"]');
+            if (targetRow) {
+                // Add highlight effect
+                targetRow.classList.add('highlighted');
+                
+                // Scroll to the row with smooth animation
+                targetRow.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center' 
+                });
+                
+                // Remove highlight after animation
+                setTimeout(() => {
+                    targetRow.classList.remove('highlighted');
+                }, 3000);
+            }
+        }
+        
+        // ✅ Enhanced tooltip functionality (optional enhancement)
+        document.addEventListener('DOMContentLoaded', function() {
+            const regions = document.querySelectorAll('.text-region');
+            regions.forEach(region => {
+                region.addEventListener('mouseenter', function() {
+                    // Could add enhanced tooltip display here
+                    this.style.zIndex = '100';
+                });
+                
+                region.addEventListener('mouseleave', function() {
+                    this.style.zIndex = '1';
+                });
+            });
+        });
+    </script>
 </body>
 </html>`;
 
@@ -210,7 +254,7 @@ function groupTextIntoRows(analyseOutput, docBounds, rowThreshold = 40) {
 }
 
 /**
- * Generate spatial layout using CSS positioning
+ * Generate spatial layout using CSS positioning with enhanced interactivity
  */
 function generateSpatialLayout(textRegions, docBounds, config) {
   const scaledWidth = (docBounds.maxX - docBounds.minX) * config.scaleFactor;
@@ -232,17 +276,22 @@ function generateSpatialLayout(textRegions, docBounds, config) {
     const orientationClass = Math.abs(entry.orientationDeg || 0) > 45 ? 'rotated' : 'horizontal';
     const handwritingClass = isHandwritten ? 'handwritten' : 'printed';
 
+    // ✅ Enhanced with number display and click functionality
     html += `
-      <div class="text-region ${handwritingClass} ${orientationClass}" 
+      <div class="text-region ${handwritingClass} ${orientationClass} clickable-region" 
            style="left: ${scaledX}px; top: ${scaledY}px; width: ${scaledW}px; height: ${scaledH}px;"
-           title="Region ${idx}: ${escapeHtml(entry.displayText || '')}"
-           data-index="${idx}">
-        <div class="text-content">${escapeHtml(truncateText(entry.displayText || '', 50))}</div>
+           title="Region ${idx + 1}: ${escapeHtml(entry.displayText || '')}"
+           data-index="${idx}"
+           onclick="scrollToTableRow(${idx})">
+        <div class="region-number">${idx + 1}</div>
         ${config.showOrientation ? `<div class="orientation">${entry.orientationDeg || 0}°</div>` : ''}
       </div>`;
   });
 
   html += `
+      </div>
+      <div class="spatial-instructions">
+        💡 ヒント: ボックスをクリックすると、対応するデータテーブル行にジャンプします
       </div>
     </div>`;
 
@@ -399,7 +448,7 @@ function generateCSS(config) {
     }
     
     .container {
-      max-width: 1600px;  /* ✅ Wider for language columns */
+      max-width: 1600px;
       margin: 0 auto;
       background: white;
       border-radius: 8px;
@@ -494,20 +543,39 @@ function generateCSS(config) {
       min-height: 300px;
     }
     
+    /* ✅ Enhanced spatial instructions */
+    .spatial-instructions {
+      margin-top: 10px;
+      padding: 10px;
+      background: #e3f2fd;
+      border-left: 4px solid #2196F3;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #1976D2;
+    }
+    
+    /* ✅ Enhanced text regions with clickability */
     .text-region {
       position: absolute;
       border: 2px solid;
       background: rgba(25, 118, 210, 0.1);
-      font-size: 10px;
+      font-size: 12px;
       overflow: hidden;
-      cursor: pointer;
       transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .text-region.clickable-region {
+      cursor: pointer;
     }
     
     .text-region:hover {
-      transform: scale(1.05);
+      transform: scale(1.1);
       z-index: 10;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+      border-width: 3px;
     }
     
     .text-region.handwritten {
@@ -520,19 +588,43 @@ function generateCSS(config) {
       background: rgba(25, 118, 210, 0.1);
     }
     
-    .text-content {
-      padding: 2px;
+    /* ✅ Region number display */
+    .region-number {
       font-weight: bold;
-      color: #333;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-size: 14px;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.8);
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border: 2px solid #fff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .text-region.handwritten .region-number {
+      background: rgba(46, 125, 50, 0.9);
+    }
+    
+    .text-region.printed .region-number {
+      background: rgba(25, 118, 210, 0.9);
+    }
+    
+    .text-region:hover .region-number {
+      transform: translate(-50%, -50%) scale(1.2);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.4);
     }
     
     .orientation {
       position: absolute;
       top: -20px;
-      right: 0;
+      right: 2px;
       background: rgba(0,0,0,0.7);
       color: white;
       padding: 2px 4px;
@@ -540,10 +632,11 @@ function generateCSS(config) {
       border-radius: 2px;
     }
     
+    /* ✅ Enhanced table with highlight functionality */
     .data-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;  /* ✅ Smaller for more columns */
+      font-size: 13px;
     }
     
     .data-table th, .data-table td {
@@ -563,6 +656,18 @@ function generateCSS(config) {
     
     .data-table tr:hover {
       background: #f0f7ff;
+    }
+    
+    /* ✅ Highlight effect for clicked row */
+    .data-table tr.highlighted {
+      background: #ffeb3b !important;
+      animation: highlightPulse 2s ease-in-out;
+    }
+    
+    @keyframes highlightPulse {
+      0% { background: #ff9800; }
+      50% { background: #ffeb3b; }
+      100% { background: #fff3c4; }
     }
     
     .handwritten-row {
@@ -608,7 +713,6 @@ function generateCSS(config) {
       width: 80px;
     }
     
-    /* ✅ Language and translation columns */
     .language-cell {
       min-width: 100px;
       text-align: center;
@@ -696,6 +800,7 @@ function generateCSS(config) {
       .data-table th, .data-table td { padding: 3px; }
       .language-grid { grid-template-columns: 1fr 1fr; }
       .text-cell, .translation-cell { min-width: 120px; max-width: 150px; }
+      .region-number { width: 20px; height: 20px; font-size: 12px; }
     }`;
 }
 
