@@ -582,7 +582,7 @@ function wrapTextToBox(
 /**
  * Generate annotated image and upload to SharePoint using existing SharePoint functions
  */
-async function generateAnnotatedImageToSharePoint(analyseOutput, originalImageBuffer, originalFileName, context, companyName) {
+async function generateAnnotatedImageToSharePoint(analyseOutput, originalImageBuffer, originalFileName, context, companyName, folderPath) {
   if (!Array.isArray(analyseOutput)) {
     handleError(new Error('Invalid analyseOutput input'), 'generateAnnotatedImageToSharePoint', context);
     return null;
@@ -709,9 +709,6 @@ async function generateAnnotatedImageToSharePoint(analyseOutput, originalImageBu
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const annotatedFileName = `${baseName}_ANNOTATED_${timestamp}.png`;
 
-    // Create SharePoint folder path for general form extractions
-    const basePath  = process.env.SHAREPOINT_ETC_FOLDER_PATH?.replace(/^\/+|\/+$/g, '') || 'その他';
-    const folderPath = `${basePath}/${companyName}`;
     logMessage(`📁 Target SharePoint folder: ${folderPath}`, context);
 
     // Import SharePoint helpers
@@ -1054,7 +1051,8 @@ async function processUnknownDocument(imageBuffer, mimeType, base64Raw, original
         imageBuffer,
         originalFileName,
         context,
-        companyName
+        companyName,
+        folderPath
       );
 
       if (sharePointResult) {
