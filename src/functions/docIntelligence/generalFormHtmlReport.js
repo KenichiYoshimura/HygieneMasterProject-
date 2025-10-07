@@ -527,21 +527,18 @@ function generateLanguageSummary(analyseOutput) {
  * Generate header section with JST time
  */
 function generateHeader(originalFileName, analyseOutput, docBounds) {
-  // ✅ Fix: Convert to JST (UTC+9) properly
+  // ✅ Fix: Proper JST conversion - use simpler approach
   const now = new Date();
-  const jstOffset = 9 * 60; // JST is UTC+9
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const jstTime = new Date(utc + (jstOffset * 60000));
   
-  // Format as Japanese date/time
-  const processedTime = jstTime.toLocaleString('ja-JP', {
+  // Create JST time directly using toLocaleString with Asia/Tokyo timezone
+  const processedTime = now.toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
-    timeZone: 'Asia/Tokyo'
+    second: '2-digit'
   });
 
   const docWidth = docBounds.maxX - docBounds.minX;
