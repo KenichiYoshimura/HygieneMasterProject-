@@ -9,12 +9,75 @@ const { detectLanguageAndTranslate, getLanguageNameInJapanese } = require('../an
 ----------------------------------------------------------------------------- */
 
 /**
- * Generate human-readable HTML report with spatial layout preservation and language detection
- * @param {Array} analyseOutput - Text regions with bbox, text, etc.
- * @param {string} originalFileName - Original filename
- * @param {Object} context - Azure Functions context
- * @param {Object} options - Configuration options
- * @returns {string} HTML content
+ * Enhanced function using the new lightweight language detection
+ */
+async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
+  logMessage(`🌐 Starting language detection for ${analyseOutput.length} text regions...`, context);
+  
+  const enhancedRegions = [];
+  let successCount = 0;
+  let errorCount = 0;
+  
+  for (let i = 0; i < analyseOutput.length; i++) {
+    const entry = analyseOutput[i];
+    const text = entry.displayText || '';
+    
+    if (!text.trim()) {
+      // Empty text - skip language detection
+      enhancedRegions.push({
+        ...entry,
+        detectedLanguage: 'N/A',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      });
+      continue;
+    }
+
+    try {
+      // Use the lightweight language detection function
+      const languageResult = await detectLanguageAndTranslate(text);
+      
+      if (languageResult.error) {
+        logMessage(`⚠️ Language detection error for region ${i + 1}: ${languageResult.error}`, context);
+        errorCount++;
+        enhancedRegions.push({
+          ...entry,
+          detectedLanguage: 'Error',
+          languageConfidence: 0,
+          japaneseTranslation: '',
+          needsTranslation: false
+        });
+      } else {
+        successCount++;
+        enhancedRegions.push({
+          ...entry,
+          detectedLanguage: languageResult.detectedLanguage,
+          languageConfidence: languageResult.languageConfidence,
+          japaneseTranslation: languageResult.japaneseTranslation || '',
+          needsTranslation: languageResult.needsTranslation
+        });
+      }
+      
+    } catch (error) {
+      logMessage(`❌ Language detection exception for region ${i + 1}: ${error.message}`, context);
+      errorCount++;
+      enhancedRegions.push({
+        ...entry,
+        detectedLanguage: 'Error',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      });
+    }
+  }
+  
+  logMessage(`✅ Language detection complete: ${successCount} success, ${errorCount} errors`, context);
+  return enhancedRegions;
+}
+
+/**
+ * Fallback HTML generation if language detection fails
  */
 async function produceHtml(analyseOutput, originalFileName, context, options = {}) {
   if (!Array.isArray(analyseOutput) || analyseOutput.length === 0) {
@@ -24,23 +87,38 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
   try {
     logMessage(`📄 Generating HTML report for ${analyseOutput.length} text regions...`, context);
 
-    // ✅ Enhance with language detection and translation FIRST
-    const enhancedRegions = await enhanceTextRegionsWithLanguage(analyseOutput, context);
+    // Try language detection, but fall back if it fails
+    let enhancedRegions;
+    try {
+      logMessage(`🌐 Attempting language detection...`, context);
+      enhancedRegions = await enhanceTextRegionsWithLanguage(analyseOutput, context);
+      logMessage(`✅ Language detection completed`, context);
+    } catch (languageError) {
+      logMessage(`⚠️ Language detection failed, using original data: ${languageError.message}`, context);
+      // Fall back to original data without language info
+      enhancedRegions = analyseOutput.map(entry => ({
+        ...entry,
+        detectedLanguage: 'N/A',
+        languageConfidence: 0,
+        japaneseTranslation: '',
+        needsTranslation: false
+      }));
+    }
 
-    // Configuration - ✅ Enable language features by default
+    // Configuration
     const config = {
       scaleFactor: options.scaleFactor || 0.3,
       cellPadding: options.cellPadding || 8,
       showBoundingBoxes: options.showBoundingBoxes !== false,
       showOrientation: options.showOrientation !== false,
       showHandwriting: options.showHandwriting !== false,
-      showLanguage: options.showLanguage !== false,        // ✅ Enable by default
-      showTranslation: options.showTranslation !== false,  // ✅ Enable by default
+      showLanguage: options.showLanguage !== false,
+      showTranslation: options.showTranslation !== false,
       groupByRows: options.groupByRows !== false,
       ...options
     };
 
-    // Find document boundaries using enhanced regions
+    // Find document boundaries
     const allBboxes = enhancedRegions.map(entry => entry.bbox).filter(Boolean);
     const docBounds = {
       minX: Math.min(...allBboxes.map(b => b[0])),
@@ -81,42 +159,27 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
     </div>
     
     <script>
-        // ✅ JavaScript for click-to-scroll functionality
+        // JavaScript for click-to-scroll functionality
         function scrollToTableRow(index) {
-            // Remove previous highlights
             const previousHighlighted = document.querySelector('.data-table tr.highlighted');
             if (previousHighlighted) {
                 previousHighlighted.classList.remove('highlighted');
             }
             
-            // Find the target row (index + 1 because first row is header)
             const targetRow = document.querySelector('.data-table tbody tr[data-index="' + index + '"]');
             if (targetRow) {
-                // Add highlight effect
                 targetRow.classList.add('highlighted');
-                
-                // Scroll to the row with smooth animation
-                targetRow.scrollIntoView({ 
-                    behavior: 'smooth', 
-                    block: 'center' 
-                });
-                
-                // Remove highlight after animation
-                setTimeout(() => {
-                    targetRow.classList.remove('highlighted');
-                }, 3000);
+                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => targetRow.classList.remove('highlighted'), 3000);
             }
         }
         
-        // ✅ Enhanced tooltip functionality (optional enhancement)
         document.addEventListener('DOMContentLoaded', function() {
             const regions = document.querySelectorAll('.text-region');
             regions.forEach(region => {
                 region.addEventListener('mouseenter', function() {
-                    // Could add enhanced tooltip display here
                     this.style.zIndex = '100';
                 });
-                
                 region.addEventListener('mouseleave', function() {
                     this.style.zIndex = '1';
                 });
@@ -130,6 +193,8 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
     return html;
 
   } catch (error) {
+    logMessage(`❌ HTML generation failed: ${error.message}`, context);
+    logMessage(`❌ Error stack: ${error.stack}`, context);
     handleError(error, 'produceHtml', context);
     return generateErrorHtml(originalFileName, error);
   }
@@ -137,13 +202,6 @@ async function produceHtml(analyseOutput, originalFileName, context, options = {
 
 /**
  * Generate HTML report and upload to SharePoint (with enhanced debugging)
- * @param {Array} analyseOutput - Text regions with bbox, text, etc.
- * @param {string} originalFileName - Original filename
- * @param {Object} context - Azure Functions context
- * @param {string} companyName - Company name for folder organization
- * @param {string} folderPath - SharePoint folder path
- * @param {Object} options - Configuration options
- * @returns {Promise<Object|null>} SharePoint upload result or null
  */
 async function generateHtmlReportToSharePoint(analyseOutput, originalFileName, context, companyName, folderPath, options = {}) {
   if (!Array.isArray(analyseOutput)) {
@@ -156,7 +214,7 @@ async function generateHtmlReportToSharePoint(analyseOutput, originalFileName, c
     logMessage(`📁 Target folder: ${folderPath}`, context);
     logMessage(`📊 Input data: ${analyseOutput.length} text regions`, context);
 
-    // ✅ Generate HTML content (now async for language detection)
+    // Generate HTML content (now async for language detection)
     logMessage(`🌐 Generating HTML content with language detection...`, context);
     const htmlContent = await produceHtml(analyseOutput, originalFileName, context, options);
 
@@ -432,6 +490,40 @@ function generateSummary(analyseOutput) {
 }
 
 /**
+ * ✅ Generate language detection summary
+ */
+function generateLanguageSummary(analyseOutput) {
+  const languageStats = {};
+  const translationNeeded = analyseOutput.filter(entry => entry.needsTranslation).length;
+  
+  analyseOutput.forEach(entry => {
+    const lang = entry.detectedLanguage || 'Unknown';
+    languageStats[lang] = (languageStats[lang] || 0) + 1;
+  });
+
+  const sortedLanguages = Object.entries(languageStats)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 5); // Top 5 languages
+
+  return `
+    <div class="language-summary-section">
+      <h2>🌐 言語検出サマリー</h2>
+      <div class="language-grid">
+        ${sortedLanguages.map(([lang, count]) => `
+          <div class="language-item">
+            <div class="language-name">${getLanguageNameInJapanese(lang)}</div>
+            <div class="language-count">${count}件</div>
+          </div>
+        `).join('')}
+        <div class="translation-item">
+          <div class="translation-label">翻訳対象</div>
+          <div class="translation-count">${translationNeeded}件</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
  * Generate header section
  */
 function generateHeader(originalFileName, analyseOutput, docBounds) {
@@ -493,7 +585,6 @@ function generateCSS(config) {
       font-size: 14px;
     }
     
-    /* ✅ Language summary section */
     .language-summary-section {
       padding: 20px;
       border-bottom: 1px solid #eee;
@@ -562,7 +653,6 @@ function generateCSS(config) {
       min-height: 300px;
     }
     
-    /* ✅ Enhanced spatial instructions */
     .spatial-instructions {
       margin-top: 10px;
       padding: 10px;
@@ -573,7 +663,6 @@ function generateCSS(config) {
       color: #1976D2;
     }
     
-    /* ✅ Enhanced text regions with clickability */
     .text-region {
       position: absolute;
       border: 2px solid;
@@ -607,7 +696,6 @@ function generateCSS(config) {
       background: rgba(25, 118, 210, 0.1);
     }
     
-    /* ✅ Region number display */
     .region-number {
       font-weight: bold;
       font-size: 14px;
@@ -651,7 +739,6 @@ function generateCSS(config) {
       border-radius: 2px;
     }
     
-    /* ✅ Enhanced table with highlight functionality */
     .data-table {
       width: 100%;
       border-collapse: collapse;
@@ -677,7 +764,6 @@ function generateCSS(config) {
       background: #f0f7ff;
     }
     
-    /* ✅ Highlight effect for clicked row */
     .data-table tr.highlighted {
       background: #ffeb3b !important;
       animation: highlightPulse 2s ease-in-out;
@@ -877,198 +963,6 @@ function generateErrorHtml(originalFileName, error) {
     </div>
 </body>
 </html>`;
-}
-
-/**
- * ✅ Enhanced function using the new lightweight language detection
- */
-async function enhanceTextRegionsWithLanguage(analyseOutput, context) {
-  logMessage(`🌐 Starting language detection for ${analyseOutput.length} text regions...`, context);
-  
-  const enhancedRegions = [];
-  let successCount = 0;
-  let errorCount = 0;
-  
-  for (let i = 0; i < analyseOutput.length; i++) {
-    const entry = analyseOutput[i];
-    const text = entry.displayText || '';
-    
-    if (!text.trim()) {
-      // Empty text - skip language detection
-      enhancedRegions.push({
-        ...entry,
-        detectedLanguage: 'N/A',
-        languageConfidence: 0,
-        japaneseTranslation: '',
-        needsTranslation: false
-      });
-      continue;
-    }
-
-    try {
-      // ✅ Use the lightweight language detection function
-      const languageResult = await detectLanguageAndTranslate(text);
-      
-      if (languageResult.error) {
-        logMessage(`⚠️ Language detection error for region ${i + 1}: ${languageResult.error}`, context);
-        errorCount++;
-        enhancedRegions.push({
-          ...entry,
-          detectedLanguage: 'Error',
-          languageConfidence: 0,
-          japaneseTranslation: '',
-          needsTranslation: false
-        });
-      } else {
-        successCount++;
-        enhancedRegions.push({
-          ...entry,
-          detectedLanguage: languageResult.detectedLanguage,
-          languageConfidence: languageResult.languageConfidence,
-          japaneseTranslation: languageResult.japaneseTranslation || '',
-          needsTranslation: languageResult.needsTranslation
-        });
-      }
-      
-    } catch (error) {
-      logMessage(`❌ Language detection exception for region ${i + 1}: ${error.message}`, context);
-      errorCount++;
-      enhancedRegions.push({
-        ...entry,
-        detectedLanguage: 'Error',
-        languageConfidence: 0,
-        japaneseTranslation: '',
-        needsTranslation: false
-      });
-    }
-  }
-  
-  logMessage(`✅ Language detection complete: ${successCount} success, ${errorCount} errors`, context);
-  return enhancedRegions;
-}
-
-/**
- * ✅ Fallback HTML generation if language detection fails
- */
-async function produceHtml(analyseOutput, originalFileName, context, options = {}) {
-  if (!Array.isArray(analyseOutput) || analyseOutput.length === 0) {
-    return generateEmptyHtml(originalFileName);
-  }
-
-  try {
-    logMessage(`📄 Generating HTML report for ${analyseOutput.length} text regions...`, context);
-
-    // ✅ Try language detection, but fall back if it fails
-    let enhancedRegions;
-    try {
-      logMessage(`🌐 Attempting language detection...`, context);
-      enhancedRegions = await enhanceTextRegionsWithLanguage(analyseOutput, context);
-      logMessage(`✅ Language detection completed`, context);
-    } catch (languageError) {
-      logMessage(`⚠️ Language detection failed, using original data: ${languageError.message}`, context);
-      // Fall back to original data without language info
-      enhancedRegions = analyseOutput.map(entry => ({
-        ...entry,
-        detectedLanguage: 'N/A',
-        languageConfidence: 0,
-        japaneseTranslation: '',
-        needsTranslation: false
-      }));
-    }
-
-    // Configuration
-    const config = {
-      scaleFactor: options.scaleFactor || 0.3,
-      cellPadding: options.cellPadding || 8,
-      showBoundingBoxes: options.showBoundingBoxes !== false,
-      showOrientation: options.showOrientation !== false,
-      showHandwriting: options.showHandwriting !== false,
-      showLanguage: options.showLanguage !== false,
-      showTranslation: options.showTranslation !== false,
-      groupByRows: options.groupByRows !== false,
-      ...options
-    };
-
-    // Find document boundaries
-    const allBboxes = enhancedRegions.map(entry => entry.bbox).filter(Boolean);
-    const docBounds = {
-      minX: Math.min(...allBboxes.map(b => b[0])),
-      minY: Math.min(...allBboxes.map(b => b[1])),
-      maxX: Math.max(...allBboxes.map(b => b[2])),
-      maxY: Math.max(...allBboxes.map(b => b[3]))
-    };
-
-    const docWidth = docBounds.maxX - docBounds.minX;
-    const docHeight = docBounds.maxY - docBounds.minY;
-
-    logMessage(`📐 Document bounds: ${docWidth}x${docHeight} pixels`, context);
-
-    // Group text regions by approximate rows (if enabled)
-    const textRegions = config.groupByRows 
-      ? groupTextIntoRows(enhancedRegions, docBounds)
-      : enhancedRegions.map(entry => ({ ...entry, rowIndex: 0 }));
-
-    // Generate HTML
-    const html = `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文書解析レポート - ${escapeHtml(originalFileName)}</title>
-    <style>
-        ${generateCSS(config)}
-    </style>
-</head>
-<body>
-    <div class="container">
-        ${generateHeader(originalFileName, enhancedRegions, docBounds)}
-        ${generateLanguageSummary(enhancedRegions)}
-        ${generateSpatialLayout(textRegions, docBounds, config)}
-        ${generateDataTable(enhancedRegions, config)}
-        ${generateSummary(enhancedRegions)}
-    </div>
-    
-    <script>
-        // JavaScript for click-to-scroll functionality
-        function scrollToTableRow(index) {
-            const previousHighlighted = document.querySelector('.data-table tr.highlighted');
-            if (previousHighlighted) {
-                previousHighlighted.classList.remove('highlighted');
-            }
-            
-            const targetRow = document.querySelector('.data-table tbody tr[data-index="' + index + '"]');
-            if (targetRow) {
-                targetRow.classList.add('highlighted');
-                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                setTimeout(() => targetRow.classList.remove('highlighted'), 3000);
-            }
-        }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            const regions = document.querySelectorAll('.text-region');
-            regions.forEach(region => {
-                region.addEventListener('mouseenter', function() {
-                    this.style.zIndex = '100';
-                });
-                region.addEventListener('mouseleave', function() {
-                    this.style.zIndex = '1';
-                });
-            });
-        });
-    </script>
-</body>
-</html>`;
-
-    logMessage(`✅ Generated HTML report: ${html.length} characters`, context);
-    return html;
-
-  } catch (error) {
-    logMessage(`❌ HTML generation failed: ${error.message}`, context);
-    logMessage(`❌ Error stack: ${error.stack}`, context);
-    handleError(error, 'produceHtml', context);
-    return generateErrorHtml(originalFileName, error);
-  }
 }
 
 /* -----------------------------------------------------------------------------
