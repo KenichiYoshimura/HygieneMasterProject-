@@ -524,10 +524,26 @@ function generateLanguageSummary(analyseOutput) {
 }
 
 /**
- * Generate header section
+ * Generate header section with JST time
  */
 function generateHeader(originalFileName, analyseOutput, docBounds) {
-  const processedTime = new Date().toLocaleString('ja-JP');
+  // ✅ Fix: Convert to JST (UTC+9) properly
+  const now = new Date();
+  const jstOffset = 9 * 60; // JST is UTC+9
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const jstTime = new Date(utc + (jstOffset * 60000));
+  
+  // Format as Japanese date/time
+  const processedTime = jstTime.toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Tokyo'
+  });
+
   const docWidth = docBounds.maxX - docBounds.minX;
   const docHeight = docBounds.maxY - docBounds.minY;
 
