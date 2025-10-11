@@ -15,7 +15,9 @@ const { detectTitleFromDocument, GENERAL_MANAGEMENT_FORM, IMPORTANT_MANAGEMENT_F
 const { prepareGeneralManagementReport } = require('./sharepoint/generalManagementReport');
 const { prepareImportantManagementReport } = require('./sharepoint/importantManagementReport');
 const { analyseAndExtract, generateAnnotatedImageToSharePoint } = require('./docIntelligence/generalFormExtractor');
-const { processUnknownDocument } = require('./docIntelligence/generalFormExtractor');
+//const { processUnknownDocument } = require('./docIntelligence/generalFormExtractor');
+const { processUnknownDocumentWithTables } = require('./docIntelligence/generalTableExtractor');
+
 // ✅ Add import for HTML report generation at the top of the file
 const { generateHtmlReportToSharePoint } = require('./docIntelligence/generalFormHtmlReport');
 
@@ -121,7 +123,16 @@ app.storageBlob('FormProcessor', {
         const fileExtension = parsed.extension.replace('.', '');
         const companyName = parsed.companyName;
         logMessage(`Company name is ${companyName} and fileExtension is ${fileExtension}`, context);
+        /*
         await processUnknownFileType(context, {
+          title: 'unknown_doc_type',
+          base64Raw,
+          fileExtension,
+          blobName,
+          companyName
+        });
+        */
+        await processUnknownFileTypeWithTables(context, {
           title: 'unknown_doc_type',
           base64Raw,
           fileExtension,
@@ -319,6 +330,142 @@ async function processUnknownFileType(context, {
       logMessage(`  ${status} ${uploadType}: ${success ? 'SUCCESS' : 'FAILED'}`, context);
     });
 
+    // Move original file to processed folder
+    await moveBlob(context, blobName, {
+      connectionString: process.env['hygienemasterstorage_STORAGE'],
+      sourceContainerName: 'incoming-emails',
+      targetContainerName: 'processed-attachments',
+      targetSubfolder: `${companyName}/general-extraction`
+    });
+
+    logMessage(`📦 Successfully moved file to processed-attachments/${companyName}/general-extraction`, context);
+
+  } catch (error) {
+    logMessage(`❌ Error during general form extraction: ${error.message}`, context);
+    handleError("❌ Error during general form extraction", error, context);
+    
+    // Move to error folder on failure
+    try {
+      await moveBlob(context, blobName, {
+        connectionString: process.env['hygienemasterstorage_STORAGE'],
+        sourceContainerName: 'incoming-emails',
+        targetContainerName: 'processed-attachments',
+        targetSubfolder: `${companyName}/extraction-errors`
+      });
+      logMessage(`📦 Moved failed file to extraction-errors folder`, context);
+    } catch (moveError) {
+      logMessage(`❌ Failed to move error file: ${moveError.message}`, context);
+    }
+  }
+}
+
+
+/**  
+ * Simplified function to extract data from any document using the comprehensive pipeline
+ */
+async function processUnknownFileTypeWithTables(context, {
+  title,
+  base64Raw,
+  fileExtension,
+  blobName,
+  companyName
+}) {
+  try {
+    logMessage(`🧠 Starting general form extraction for unknown file type with tables`, context);
+    logMessage(`📄 File: ${blobName}, Company: ${companyName}, Extension: ${fileExtension}`, context);
+
+    // Convert base64 to buffer for processing
+    const imageBuffer = Buffer.from(base64Raw, 'base64');
+    
+    // Determine MIME type
+    const mimeType = fileExtension === 'pdf' ? 'application/pdf' : 
+                    fileExtension === 'heic' ? 'image/heif' : 
+                    `image/${fileExtension}`;
+
+    // Extract original filename from blob name
+    const originalFileName = blobName.split(')')[1] || `unknown_${Date.now()}.${fileExtension}`;
+
+    // ✅ SIMPLIFIED: Use the comprehensive processing function
+    const processingResult = await processUnknownDocumentWithTables(
+      imageBuffer,
+      mimeType,
+      base64Raw,
+      originalFileName,
+      companyName,
+      context
+    );
+
+    if (!processingResult.success) {
+      logMessage(`❌ Processing failed: ${processingResult.reason}`, context);
+      
+      // Move to appropriate folder based on failure reason
+      const targetSubfolder = processingResult.reason === 'no_text_detected' 
+        ? `${companyName}/no-text-detected`
+        : `${companyName}/extraction-errors`;
+      
+      await moveBlob(context, blobName, {
+        connectionString: process.env['hygienemasterstorage_STORAGE'],
+        sourceContainerName: 'incoming-emails',
+        targetContainerName: 'processed-attachments',
+        targetSubfolder
+      });
+      
+      logMessage(`📦 Moved file to ${targetSubfolder}`, context);
+      return;
+    }
+
+    /*
+    // Success! Get the analysis data for HTML report
+    const { textRegions, handwrittenRegions, printedRegions, uploads, sharePointFolder, analysisData } = processingResult;
+    
+    // ✅ Generate HTML report using the extracted analysis data
+    logMessage(`📄 Generating HTML report for extracted data...`, context);
+    
+    try {
+      logMessage(`🔄 Calling generateHtmlReportToSharePoint with:`, context);
+      logMessage(`  - analysisData length: ${analysisData ? analysisData.length : 'null'}`, context);
+      logMessage(`  - originalFileName: ${originalFileName}`, context);
+      logMessage(`  - companyName: ${companyName}`, context);
+      logMessage(`  - sharePointFolder: ${sharePointFolder}`, context);
+      
+      const htmlReportResult = await generateHtmlReportToSharePoint(
+        analysisData,           // The analyzed text regions
+        originalFileName,       // Original filename
+        context,               // Azure Functions context
+        companyName,           // Company name
+        sharePointFolder       // Same SharePoint folder as other uploads
+      );
+
+      if (htmlReportResult) {
+        logMessage(`✅ Successfully uploaded HTML report: ${htmlReportResult.fileName}`, context);
+        logMessage(`📊 HTML report size: ${htmlReportResult.fileSize} characters`, context);
+        uploads.htmlReport = true;
+      } else {
+        logMessage(`⚠️ HTML report generation returned null`, context);
+        uploads.htmlReport = false;
+      }
+    } catch (htmlError) {
+      logMessage(`❌ Error generating HTML report: ${htmlError.message}`, context);
+      logMessage(`❌ HTML error stack: ${htmlError.stack}`, context);
+      uploads.htmlReport = false;
+    }
+
+    // Calculate updated success metrics
+    const successfulUploads = Object.values(uploads).filter(Boolean).length;
+    const totalUploads = Object.keys(uploads).length;
+    
+    logMessage(`✅ Processing successful!`, context);
+    logMessage(`📊 Text regions: ${textRegions} (${handwrittenRegions} handwritten, ${printedRegions} printed)`, context);
+    logMessage(`📤 SharePoint uploads: ${successfulUploads}/${totalUploads} successful`, context);
+    logMessage(`📁 SharePoint folder: ${sharePointFolder}`, context);
+    
+    // Log detailed upload status
+    Object.entries(uploads).forEach(([uploadType, success]) => {
+      const status = success ? '✅' : '❌';
+      logMessage(`  ${status} ${uploadType}: ${success ? 'SUCCESS' : 'FAILED'}`, context);
+    });
+
+    */
     // Move original file to processed folder
     await moveBlob(context, blobName, {
       connectionString: process.env['hygienemasterstorage_STORAGE'],
